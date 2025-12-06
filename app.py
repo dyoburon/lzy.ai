@@ -22,6 +22,7 @@ from services.transcript import process_transcript, generate_chapters
 from services.youtube_live import check_live_status, get_channel_info
 from services.discord_notify import send_discord_notification
 from services.shorts import process_video_for_shorts, detect_interesting_moments, clip_all_moments, process_clip_to_vertical, process_clips_to_vertical
+from services.idea_generator import process_video_for_ideas
 
 # Environment variable definitions for the config endpoint
 ENV_VAR_CONFIG = {
@@ -302,6 +303,55 @@ def process_vertical_shorts():
         layout = {"topRegionId": "content", "splitRatio": 0.6}
 
     result = process_clips_to_vertical(clips, regions, layout)
+    return jsonify(result)
+
+
+# --- Video Idea Generator Routes ---
+@app.route('/api/ideas/generate', methods=['POST'])
+def generate_ideas():
+    """
+    Generate video and shorts ideas from a YouTube video transcript.
+
+    Request body:
+    {
+        "url": "https://youtube.com/watch?v=...",
+        "num_video_ideas": 5,  // Optional, 1-10, default 5
+        "num_shorts_ideas": 5  // Optional, 1-10, default 5
+    }
+
+    Returns generated content ideas.
+    """
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({
+            "error": "GEMINI_API_KEY not configured",
+            "missing_env": "GEMINI_API_KEY"
+        }), 400
+
+    data = request.json
+    video_url = data.get('url')
+    num_video_ideas = data.get('num_video_ideas', 5)
+    num_shorts_ideas = data.get('num_shorts_ideas', 5)
+
+    # Validate counts
+    try:
+        num_video_ideas = max(1, min(10, int(num_video_ideas)))
+        num_shorts_ideas = max(1, min(10, int(num_shorts_ideas)))
+    except (ValueError, TypeError):
+        num_video_ideas = 5
+        num_shorts_ideas = 5
+
+    if not video_url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    result = process_video_for_ideas(
+        video_url,
+        num_video_ideas=num_video_ideas,
+        num_shorts_ideas=num_shorts_ideas
+    )
+
+    if "error" in result and "missing_env" not in result:
+        return jsonify(result), 400
+
     return jsonify(result)
 
 
