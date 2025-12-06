@@ -39,9 +39,15 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900">
       {/* Header */}
       <header className="border-b border-zinc-700/50">
-        <div className="max-w-6xl mx-auto px-6 py-4">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="text-2xl font-bold text-white">
             lzy<span className="text-purple-500">.ai</span>
+          </Link>
+          <Link
+            href="/instructions"
+            className="text-sm text-zinc-400 hover:text-white transition-colors"
+          >
+            Setup Guide
           </Link>
         </div>
       </header>

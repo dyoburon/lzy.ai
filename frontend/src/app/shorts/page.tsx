@@ -7,12 +7,20 @@ export default function ShortsPage() {
     <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900">
       {/* Header */}
       <header className="border-b border-zinc-700/50">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
-          <Link href="/" className="text-2xl font-bold text-white">
-            lzy<span className="text-purple-500">.ai</span>
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-2xl font-bold text-white">
+              lzy<span className="text-purple-500">.ai</span>
+            </Link>
+            <span className="text-zinc-600">/</span>
+            <span className="text-zinc-400">Shorts Clipper</span>
+          </div>
+          <Link
+            href="/instructions"
+            className="text-sm text-zinc-400 hover:text-white transition-colors"
+          >
+            Setup Guide
           </Link>
-          <span className="text-zinc-600">/</span>
-          <span className="text-zinc-400">Shorts Clipper</span>
         </div>
       </header>
 
