@@ -1,25 +1,539 @@
-# TBD: Shorts Clipper Service
+# Shorts Clipper Service
 #
-# This service will handle:
-# - Taking in a long video (uploaded)
-# - Analyzing the video for engaging moments
-# - Clipping out shorts-worthy segments
-# - Exporting clips in vertical format for YouTube Shorts / TikTok / Reels
-#
-# Implementation coming soon.
+# This service handles:
+# - Analyzing YouTube video transcripts for engaging moments
+# - Using Gemini AI to identify the most interesting segments
+# - Clipping out shorts-worthy segments with ffmpeg
+# - Exporting clips for validation
 
+import os
+import subprocess
+import json
+import google.generativeai as genai
+from services.transcript import extract_video_id, format_timestamp
+
+# Configure Gemini
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+
+def get_transcript_for_moments(video_url):
+    """
+    Fetches transcript from YouTube video for moment detection.
+    Reuses logic from transcript.py but returns data optimized for moment detection.
+    """
+    from youtube_transcript_api import YouTubeTranscriptApi
+
+    video_id = extract_video_id(video_url)
+    if not video_id:
+        return {"error": "Invalid YouTube URL"}
+
+    try:
+        loader = YouTubeTranscriptApi()
+        transcript_list = loader.fetch(video_id)
+
+        # Format transcript with timestamps for AI analysis
+        formatted_transcript = []
+        full_text_for_ai = ""
+
+        for entry in transcript_list:
+            start = entry.start
+            duration = entry.duration
+            text = entry.text
+            timestamp = format_timestamp(start)
+
+            formatted_transcript.append({
+                'timestamp': timestamp,
+                'text': text,
+                'start': start,
+                'duration': duration
+            })
+            full_text_for_ai += f"[{timestamp}] {text}\n"
+
+        return {
+            "transcript": formatted_transcript,
+            "full_text": full_text_for_ai,
+            "video_id": video_id
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def detect_interesting_moments(transcript_text, num_clips=3, max_duration_seconds=120):
+    """
+    Uses Gemini to detect the most interesting moments in a video transcript.
+
+    Args:
+        transcript_text: The full transcript with timestamps
+        num_clips: Number of clips to identify (1-10, default 3)
+        max_duration_seconds: Maximum duration for each clip (default 120 = 2 minutes)
+
+    Returns:
+        List of moments with start/end timestamps and descriptions
+    """
+    if not GEMINI_API_KEY:
+        return {"error": "GEMINI_API_KEY not configured"}
+
+    # Clamp num_clips to valid range
+    num_clips = max(1, min(10, num_clips))
+
+    try:
+        model = genai.GenerativeModel('gemini-2.5-pro')
+
+        prompt = f"""
+You are an expert content strategist specializing in viral short-form content. Analyze this video transcript and identify the MOST INTERESTING MOMENTS that would make great standalone clips.
+
+Here is the transcript:
+{transcript_text}
+
+TASK: Identify exactly {num_clips} of the most engaging, interesting, or viral-worthy moments from this video.
+
+CRITERIA for selecting moments:
+1. **Emotional peaks** - Funny moments, surprising revelations, intense reactions
+2. **Valuable insights** - Key tips, important information, "aha" moments
+3. **Story hooks** - Compelling narratives, cliffhangers, dramatic moments
+4. **Quotable content** - Memorable statements, hot takes, strong opinions
+5. **Visual potential** - Moments that likely have interesting visuals or actions
+
+RULES:
+1. Each clip should be between 30 seconds and {max_duration_seconds} seconds (max ~2 minutes)
+2. Pick segments that can stand alone without additional context
+3. Avoid intros, outros, and "filler" content
+4. Focus on the most ENGAGING parts, not just informative ones
+
+OUTPUT FORMAT (JSON array):
+[
+  {{
+    "start_time": "MM:SS",
+    "end_time": "MM:SS",
+    "title": "Short catchy title for the clip",
+    "reason": "Brief explanation of why this moment is interesting",
+    "viral_score": 8
+  }}
+]
+
+The viral_score is 1-10 rating of how likely this clip would perform well as a short.
+
+Return ONLY the JSON array, no other text.
+"""
+
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+
+        # Clean up response - remove markdown code blocks if present
+        if response_text.startswith("```"):
+            # Remove ```json or ``` from start
+            response_text = response_text.split("\n", 1)[1] if "\n" in response_text else response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        response_text = response_text.strip()
+
+        # Parse JSON response
+        moments = json.loads(response_text)
+
+        # Sort by viral score descending
+        moments.sort(key=lambda x: x.get('viral_score', 0), reverse=True)
+
+        return {"moments": moments}
+
+    except json.JSONDecodeError as e:
+        return {"error": f"Failed to parse AI response as JSON: {str(e)}", "raw_response": response_text}
+    except Exception as e:
+        return {"error": f"Error detecting moments: {str(e)}"}
+
+
+def parse_timestamp_to_seconds(timestamp):
+    """Convert MM:SS or HH:MM:SS to seconds."""
+    parts = timestamp.split(":")
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    elif len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    return 0
+
+
+def clip_video_segment(video_path, start_time, end_time, output_path=None):
+    """
+    Clips a segment from a video using ffmpeg.
+
+    Args:
+        video_path: Path to the source video file
+        start_time: Start timestamp (MM:SS or HH:MM:SS)
+        end_time: End timestamp (MM:SS or HH:MM:SS)
+        output_path: Path for the output clip (optional, uses temp file if not provided)
+
+    Returns:
+        Dict with success status, clip data as base64, and metadata
+    """
+    import tempfile
+    import base64
+
+    try:
+        # Convert timestamps to seconds for ffmpeg
+        start_seconds = parse_timestamp_to_seconds(start_time)
+        end_seconds = parse_timestamp_to_seconds(end_time)
+        duration = end_seconds - start_seconds
+
+        if duration <= 0:
+            return {"error": "End time must be after start time"}
+
+        # Use temp file if no output path provided
+        use_temp = output_path is None
+        if use_temp:
+            temp_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+            output_path = temp_file.name
+            temp_file.close()
+
+        # Build ffmpeg command
+        # -ss before -i for fast seeking
+        # -t for duration
+        # -c copy for fast copy without re-encoding (no cropping, just clipping)
+        cmd = [
+            'ffmpeg',
+            '-y',  # Overwrite output
+            '-ss', str(start_seconds),
+            '-i', video_path,
+            '-t', str(duration),
+            '-c', 'copy',  # Copy codecs, no re-encoding
+            '-avoid_negative_ts', 'make_zero',
+            output_path
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            if use_temp and os.path.exists(output_path):
+                os.unlink(output_path)
+            return {"error": f"ffmpeg error: {result.stderr}"}
+
+        # Read the clip file and convert to base64
+        with open(output_path, 'rb') as f:
+            video_data = f.read()
+
+        video_base64 = base64.b64encode(video_data).decode('utf-8')
+        file_size = len(video_data)
+
+        # Clean up temp file
+        if use_temp and os.path.exists(output_path):
+            os.unlink(output_path)
+
+        return {
+            "success": True,
+            "video_data": video_base64,
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration_seconds": duration,
+            "file_size": file_size
+        }
+
+    except FileNotFoundError:
+        return {"error": "ffmpeg not found. Please install ffmpeg."}
+    except Exception as e:
+        return {"error": f"Error clipping video: {str(e)}"}
+
+
+def clip_all_moments(video_path, moments):
+    """
+    Clips all identified moments from a video.
+
+    Args:
+        video_path: Path to the source video file
+        moments: List of moment dicts with start_time and end_time
+
+    Returns:
+        Dict with results for each clip, including base64 video data
+    """
+    results = []
+    for i, moment in enumerate(moments):
+        # Create safe filename from title
+        safe_title = "".join(c for c in moment.get('title', f'clip_{i}') if c.isalnum() or c in ' -_').strip()
+        safe_title = safe_title[:50]  # Limit length
+        filename = f"{i+1:02d}_{safe_title}.mp4"
+
+        clip_result = clip_video_segment(
+            video_path,
+            moment['start_time'],
+            moment['end_time']
+        )
+
+        # Add filename for download purposes
+        if clip_result.get('success'):
+            clip_result['filename'] = filename
+
+        results.append({
+            "moment": moment,
+            "clip_result": clip_result
+        })
+
+    return {"clips": results}
+
+
+def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_clips=3):
+    """
+    Main function to process a video for shorts.
+
+    Args:
+        video_url: YouTube URL to get transcript from
+        video_path: Path to the downloaded video file (optional, for clipping)
+        output_dir: Directory to save clips (optional)
+        num_clips: Number of clips to identify (1-10, default 3)
+
+    Returns:
+        Dict with transcript, detected moments, and optionally clipped videos
+    """
+    # Step 1: Get transcript
+    transcript_result = get_transcript_for_moments(video_url)
+    if "error" in transcript_result:
+        return transcript_result
+
+    # Step 2: Detect interesting moments using Gemini
+    moments_result = detect_interesting_moments(transcript_result['full_text'], num_clips=num_clips)
+    if "error" in moments_result:
+        return {
+            "transcript": transcript_result,
+            "moments_error": moments_result['error']
+        }
+
+    result = {
+        "video_id": transcript_result['video_id'],
+        "moments": moments_result['moments'],
+        "transcript_preview": transcript_result['full_text'][:500] + "..."
+    }
+
+    # Step 3: If video path provided, clip the moments
+    if video_path and os.path.exists(video_path):
+        if not output_dir:
+            # Default output directory next to video
+            video_dir = os.path.dirname(video_path)
+            video_name = os.path.splitext(os.path.basename(video_path))[0]
+            output_dir = os.path.join(video_dir, f"{video_name}_clips")
+
+        clips_result = clip_all_moments(video_path, moments_result['moments'], output_dir)
+        result['clips'] = clips_result
+
+    return result
+
+
+def process_clip_to_vertical(video_data_base64, regions, layout_config):
+    """
+    Process a clipped video into a vertical short by cropping and stacking regions.
+
+    Args:
+        video_data_base64: Base64 encoded video data
+        regions: List of two region dicts with x, y, width, height (as percentages)
+            [
+                {"id": "content", "x": 5, "y": 5, "width": 60, "height": 90},
+                {"id": "webcam", "x": 70, "y": 60, "width": 25, "height": 35}
+            ]
+        layout_config: Dict with layout settings
+            {
+                "topRegionId": "content",  # which region goes on top
+                "splitRatio": 0.6  # 60% top, 40% bottom
+            }
+
+    Returns:
+        Dict with success status and processed video as base64
+    """
+    import tempfile
+    import base64
+
+    try:
+        # Decode input video to temp file
+        input_data = base64.b64decode(video_data_base64)
+        input_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        input_file.write(input_data)
+        input_file.close()
+        input_path = input_file.name
+
+        # Create temp output file
+        output_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        output_file.close()
+        output_path = output_file.name
+
+        # Get video dimensions using ffprobe
+        probe_cmd = [
+            'ffprobe', '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height',
+            '-of', 'json',
+            input_path
+        ]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        if probe_result.returncode != 0:
+            return {"error": f"ffprobe error: {probe_result.stderr}"}
+
+        probe_data = json.loads(probe_result.stdout)
+        src_width = probe_data['streams'][0]['width']
+        src_height = probe_data['streams'][0]['height']
+
+        # Determine which region is top and bottom
+        top_region_id = layout_config.get('topRegionId', 'content')
+        split_ratio = layout_config.get('splitRatio', 0.6)
+
+        top_region = next((r for r in regions if r['id'] == top_region_id), regions[0])
+        bottom_region = next((r for r in regions if r['id'] != top_region_id), regions[1])
+
+        # Convert percentage-based regions to pixel values
+        def region_to_pixels(region, src_w, src_h):
+            return {
+                'x': int(region['x'] / 100 * src_w),
+                'y': int(region['y'] / 100 * src_h),
+                'w': int(region['width'] / 100 * src_w),
+                'h': int(region['height'] / 100 * src_h)
+            }
+
+        top_px = region_to_pixels(top_region, src_width, src_height)
+        bottom_px = region_to_pixels(bottom_region, src_width, src_height)
+
+        # Target dimensions for vertical short (9:16 aspect ratio)
+        target_width = 1080
+        target_height = 1920
+
+        # Calculate heights based on split ratio
+        top_height = int(target_height * split_ratio)
+        bottom_height = target_height - top_height
+
+        # Build complex FFmpeg filter
+        # 1. Crop each region from source
+        # 2. Scale each to target width, maintaining aspect ratio then padding/cropping to exact height
+        # 3. Stack vertically
+        filter_complex = (
+            # Crop and scale top region
+            f"[0:v]crop={top_px['w']}:{top_px['h']}:{top_px['x']}:{top_px['y']},"
+            f"scale={target_width}:-1,"
+            f"pad={target_width}:{top_height}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"crop={target_width}:{top_height}[top];"
+            # Crop and scale bottom region
+            f"[0:v]crop={bottom_px['w']}:{bottom_px['h']}:{bottom_px['x']}:{bottom_px['y']},"
+            f"scale={target_width}:-1,"
+            f"pad={target_width}:{bottom_height}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"crop={target_width}:{bottom_height}[bottom];"
+            # Stack vertically
+            f"[top][bottom]vstack=inputs=2[out]"
+        )
+
+        # Build ffmpeg command
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', input_path,
+            '-filter_complex', filter_complex,
+            '-map', '[out]',
+            '-map', '0:a?',  # Include audio if present
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        # Clean up input temp file
+        os.unlink(input_path)
+
+        if result.returncode != 0:
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+            return {"error": f"ffmpeg error: {result.stderr}"}
+
+        # Read output and convert to base64
+        with open(output_path, 'rb') as f:
+            output_data = f.read()
+
+        output_base64 = base64.b64encode(output_data).decode('utf-8')
+        file_size = len(output_data)
+
+        # Clean up output temp file
+        os.unlink(output_path)
+
+        return {
+            "success": True,
+            "video_data": output_base64,
+            "file_size": file_size,
+            "dimensions": {"width": target_width, "height": target_height}
+        }
+
+    except FileNotFoundError:
+        return {"error": "ffmpeg/ffprobe not found. Please install ffmpeg."}
+    except Exception as e:
+        # Clean up any temp files
+        if 'input_path' in dir() and os.path.exists(input_path):
+            os.unlink(input_path)
+        if 'output_path' in dir() and os.path.exists(output_path):
+            os.unlink(output_path)
+        return {"error": f"Error processing video: {str(e)}"}
+
+
+def process_clips_to_vertical(clips, regions, layout_config):
+    """
+    Process multiple clips into vertical shorts.
+
+    Args:
+        clips: List of clip results from clip_all_moments
+        regions: Region selections
+        layout_config: Layout configuration
+
+    Returns:
+        List of processed results
+    """
+    results = []
+    for clip in clips:
+        clip_result = clip.get('clip_result', {})
+        if not clip_result.get('success') or not clip_result.get('video_data'):
+            results.append({
+                "moment": clip.get('moment'),
+                "error": "No video data available for this clip"
+            })
+            continue
+
+        processed = process_clip_to_vertical(
+            clip_result['video_data'],
+            regions,
+            layout_config
+        )
+
+        results.append({
+            "moment": clip.get('moment'),
+            "original_filename": clip_result.get('filename', 'clip.mp4'),
+            "processed": processed
+        })
+
+    return {"processed_clips": results}
+
+
+# Legacy function for backwards compatibility
 def clip_shorts(video_path, options=None):
     """
-    TBD: Clip shorts from a long video.
+    Legacy function - now redirects to process_video_for_shorts.
 
     Args:
         video_path: Path to the uploaded video file
         options: Configuration options for clipping
+            - video_url: YouTube URL for transcript
+            - output_dir: Directory to save clips
 
     Returns:
-        List of clipped short videos
+        Processing results
     """
-    return {
-        "status": "tbd",
-        "message": "Shorts clipper implementation coming soon"
-    }
+    if options is None:
+        options = {}
+
+    video_url = options.get('video_url')
+    if not video_url:
+        return {
+            "error": "video_url is required in options to fetch transcript"
+        }
+
+    return process_video_for_shorts(
+        video_url=video_url,
+        video_path=video_path,
+        output_dir=options.get('output_dir')
+    )
