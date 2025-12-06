@@ -399,24 +399,33 @@ def process_clip_to_vertical(video_data_base64, regions, layout_config):
         top_height = int(target_height * split_ratio)
         bottom_height = target_height - top_height
 
+        # Debug logging
+        print(f"[process_clip_to_vertical] Source: {src_width}x{src_height}")
+        print(f"[process_clip_to_vertical] Top region: {top_px} -> target {target_width}x{top_height}")
+        print(f"[process_clip_to_vertical] Bottom region: {bottom_px} -> target {target_width}x{bottom_height}")
+
         # Build complex FFmpeg filter
         # 1. Crop each region from source
-        # 2. Scale each to target width, maintaining aspect ratio then padding/cropping to exact height
-        # 3. Stack vertically
+        # 2. Scale to FIT within target box (respects both width AND height)
+        # 3. Pad to exact dimensions (center the content)
+        # 4. Stack vertically
+        #
+        # Using force_original_aspect_ratio=decrease ensures the scaled result
+        # fits WITHIN the target box, then we pad to fill the exact size.
         filter_complex = (
-            # Crop and scale top region
+            # Crop and scale top region to fit within target_width x top_height
             f"[0:v]crop={top_px['w']}:{top_px['h']}:{top_px['x']}:{top_px['y']},"
-            f"scale={target_width}:-1,"
-            f"pad={target_width}:{top_height}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"crop={target_width}:{top_height}[top];"
-            # Crop and scale bottom region
+            f"scale={target_width}:{top_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{top_height}:(ow-iw)/2:(oh-ih)/2:black[top];"
+            # Crop and scale bottom region to fit within target_width x bottom_height
             f"[0:v]crop={bottom_px['w']}:{bottom_px['h']}:{bottom_px['x']}:{bottom_px['y']},"
-            f"scale={target_width}:-1,"
-            f"pad={target_width}:{bottom_height}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"crop={target_width}:{bottom_height}[bottom];"
+            f"scale={target_width}:{bottom_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{bottom_height}:(ow-iw)/2:(oh-ih)/2:black[bottom];"
             # Stack vertically
             f"[top][bottom]vstack=inputs=2[out]"
         )
+
+        print(f"[process_clip_to_vertical] Filter: {filter_complex}")
 
         # Build ffmpeg command
         cmd = [
