@@ -1,0 +1,9 @@
+flask>=3.0.0
+flask-cors>=4.0.0
+python-dotenv>=1.0.0
+google-generativeai>=0.8.0
+google-api-python-client>=2.0.0
+youtube-transcript-api>=0.6.0
+discord.py>=2.3.0
+better-profanity>=0.7.0
+requests>=2.31.0
