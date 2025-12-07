@@ -664,17 +664,28 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
             "transcription": transcription_result.get('text', '')
         }
 
-    # Step 3: Add caption overlay
+    # Step 3: Add caption overlay - pass all styling options
     caption_result = create_caption_overlay_video(
         vertical_result['video_data'],
         captions,
         caption_options={
             'font_size': caption_options.get('font_size', 56),
-            'font_name': caption_options.get('font_name', 'Arial Bold'),
-            'primary_color': caption_options.get('primary_color', 'white'),
-            'highlight_color': caption_options.get('highlight_color', 'yellow'),
+            'font_name': caption_options.get('font_name', 'Arial Black'),
+            'primary_color': caption_options.get('primary_color', '#ffffff'),
+            'highlight_color': caption_options.get('highlight_color', '#fbbf24'),
             'highlight_scale': caption_options.get('highlight_scale', 1.3),
             'position_y': caption_options.get('position_y', 85),
+            'text_style': caption_options.get('text_style', 'normal'),
+            'animation_style': caption_options.get('animation_style', 'both'),
+            'word_spacing': caption_options.get('word_spacing', 8),
+            'outline_enabled': caption_options.get('outline_enabled', True),
+            'outline_color': caption_options.get('outline_color', '#000000'),
+            'outline_width': caption_options.get('outline_width', 3),
+            'shadow_enabled': caption_options.get('shadow_enabled', True),
+            'shadow_color': caption_options.get('shadow_color', '#000000'),
+            'background_enabled': caption_options.get('background_enabled', False),
+            'background_color': caption_options.get('background_color', '#000000'),
+            'background_opacity': caption_options.get('background_opacity', 50),
         }
     )
 

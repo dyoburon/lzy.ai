@@ -214,11 +214,66 @@ def generate_ffmpeg_caption_filter(captions, video_width=1080, video_height=1920
     return None  # We'll use ASS approach instead
 
 
+def hex_to_ass_color(hex_color):
+    """
+    Convert hex color (#RRGGBB) to ASS format (&HBBGGRR).
+
+    Args:
+        hex_color: Color in hex format (#RRGGBB or #RGB) or named color
+
+    Returns:
+        Color in ASS format (&HBBGGRR)
+    """
+    # Named color fallbacks
+    color_map = {
+        'white': '&HFFFFFF',
+        'yellow': '&H00FFFF',
+        'cyan': '&HFFFF00',
+        'green': '&H00FF00',
+        'red': '&H0000FF',
+        'blue': '&HFF0000',
+        'orange': '&H0080FF',
+        'pink': '&HFF00FF',
+        'black': '&H000000',
+    }
+
+    if not hex_color:
+        return '&HFFFFFF'
+
+    # Handle named colors
+    if hex_color.lower() in color_map:
+        return color_map[hex_color.lower()]
+
+    # Handle hex colors
+    if hex_color.startswith('#'):
+        hex_color = hex_color[1:]
+
+    # Handle short hex (#RGB -> #RRGGBB)
+    if len(hex_color) == 3:
+        hex_color = ''.join([c*2 for c in hex_color])
+
+    if len(hex_color) != 6:
+        return '&HFFFFFF'  # Default to white on invalid
+
+    try:
+        r = hex_color[0:2]
+        g = hex_color[2:4]
+        b = hex_color[4:6]
+        # ASS uses BGR format
+        return f'&H{b}{g}{r}'.upper()
+    except:
+        return '&HFFFFFF'
+
+
 def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
-                           font_size=56, font_name="Arial Bold",
+                           font_size=56, font_name="Arial Black",
                            primary_color="&HFFFFFF", highlight_color="&H00FFFF",
                            outline_color="&H000000", highlight_scale=1.3,
-                           position_y=85):
+                           position_y=85, text_style="normal", animation_style="both",
+                           word_spacing=8, outline_enabled=True, outline_width=3,
+                           shadow_enabled=True, shadow_color="&H000000",
+                           background_enabled=False, background_color="&H000000",
+                           background_opacity=50):
     """
     Generate ASS subtitle file content for animated captions.
 
@@ -227,15 +282,37 @@ def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
         video_width/height: Video dimensions
         font_size: Base font size
         font_name: Font to use
-        primary_color: Normal text color (ASS format: &HBBGGRR)
+        primary_color: Normal text color (ASS format: &HBBGGRR or hex #RRGGBB)
         highlight_color: Highlighted word color
         outline_color: Text outline color
         highlight_scale: Scale factor for highlighted word (1.3 = 30% bigger)
         position_y: Vertical position as percentage from top (0-100, default 85)
+        text_style: 'normal' or 'uppercase'
+        animation_style: 'scale', 'color', 'both', or 'glow'
+        word_spacing: Space between words in pixels
+        outline_enabled: Whether to show text outline
+        outline_width: Width of outline in pixels
+        shadow_enabled: Whether to show text shadow
+        shadow_color: Shadow color
+        background_enabled: Whether to show background box
+        background_color: Background color
+        background_opacity: Background opacity (0-100)
 
     Returns:
         String content for .ass file
     """
+    # Convert colors from hex to ASS format if needed
+    if primary_color.startswith('#') or primary_color.lower() in ['white', 'yellow', 'cyan', 'green', 'red', 'blue', 'orange', 'pink', 'black']:
+        primary_color = hex_to_ass_color(primary_color)
+    if highlight_color.startswith('#') or highlight_color.lower() in ['white', 'yellow', 'cyan', 'green', 'red', 'blue', 'orange', 'pink', 'black']:
+        highlight_color = hex_to_ass_color(highlight_color)
+    if outline_color.startswith('#') or outline_color.lower() in ['white', 'yellow', 'cyan', 'green', 'red', 'blue', 'orange', 'pink', 'black']:
+        outline_color = hex_to_ass_color(outline_color)
+    if shadow_color.startswith('#') or shadow_color.lower() in ['white', 'yellow', 'cyan', 'green', 'red', 'blue', 'orange', 'pink', 'black']:
+        shadow_color = hex_to_ass_color(shadow_color)
+    if background_color.startswith('#') or background_color.lower() in ['white', 'yellow', 'cyan', 'green', 'red', 'blue', 'orange', 'pink', 'black']:
+        background_color = hex_to_ass_color(background_color)
+
     # Calculate margin from bottom based on position_y percentage
     # position_y=85 means 85% from top, so 15% from bottom
     # MarginV in ASS is distance from bottom for alignment 2 (bottom-center)
@@ -256,6 +333,19 @@ def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
         # MarginV is from bottom, so if position_y=85, margin from bottom = 15%
         margin_v = int(video_height * ((100 - position_y) / 100))
 
+    # Calculate outline and shadow settings
+    actual_outline = outline_width if outline_enabled else 0
+    actual_shadow = 2 if shadow_enabled else 0
+
+    # BorderStyle: 1 = outline + shadow, 3 = opaque box background
+    border_style = 3 if background_enabled else 1
+
+    # BackColour with alpha (for background box): &HAABBGGRR
+    # Alpha is 00 = opaque, FF = transparent
+    # Convert opacity (0-100) to alpha (FF-00)
+    bg_alpha = hex(int(255 * (1 - background_opacity / 100)))[2:].upper().zfill(2)
+    back_color = f"&H{bg_alpha}{background_color[2:]}" if background_enabled else f"&H80{shadow_color[2:]}"
+
     # ASS header
     ass_content = f"""[Script Info]
 Title: Auto-generated Captions
@@ -266,8 +356,8 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,3,2,{alignment},50,50,{margin_v},1
-Style: Highlight,{font_name},{int(font_size * highlight_scale)},{highlight_color},&H000000FF,{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,4,2,{alignment},50,50,{margin_v},1
+Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},{back_color},1,0,0,0,100,100,{word_spacing},0,{border_style},{actual_outline},{actual_shadow},{alignment},50,50,{margin_v},1
+Style: Highlight,{font_name},{int(font_size * highlight_scale)},{highlight_color},&H000000FF,{outline_color},{back_color},1,0,0,0,100,100,{word_spacing},0,{border_style},{actual_outline + 1},{actual_shadow},{alignment},50,50,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -299,11 +389,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Build text with current word highlighted using ASS override tags
             text_parts = []
             for j, word in enumerate(words):
+                word_text = word['word']
+
+                # Apply text style (uppercase)
+                if text_style == 'uppercase':
+                    word_text = word_text.upper()
+
                 if j == i:
-                    # Highlighted word - bigger and different color
-                    text_parts.append(f"{{\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}\\c{highlight_color}}}{word['word']}{{\\r}}")
+                    # Highlighted word - apply animation based on style
+                    if animation_style == 'scale':
+                        # Only scale, no color change
+                        text_parts.append(f"{{\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}{{\\r}}")
+                    elif animation_style == 'color':
+                        # Only color change, no scale
+                        text_parts.append(f"{{\\c{highlight_color}}}{word_text}{{\\r}}")
+                    elif animation_style == 'glow':
+                        # Color + blur for glow effect
+                        text_parts.append(f"{{\\c{highlight_color}\\blur2}}{word_text}{{\\r}}")
+                    else:  # 'both' or default
+                        # Scale + color
+                        text_parts.append(f"{{\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}\\c{highlight_color}}}{word_text}{{\\r}}")
                 else:
-                    text_parts.append(word['word'])
+                    text_parts.append(word_text)
 
             full_text = " ".join(text_parts)
 
@@ -372,11 +479,22 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
         captions: Caption data from transcribe_video_for_captions
         caption_options: Dict with styling options:
             - font_size: Base font size (default 56)
-            - font_name: Font name (default "Arial Bold")
-            - primary_color: Normal text color (default white)
-            - highlight_color: Highlighted word color (default yellow)
+            - font_name: Font name (default "Arial Black")
+            - primary_color: Normal text color (default #ffffff)
+            - highlight_color: Highlighted word color (default #fbbf24)
             - highlight_scale: Scale factor for highlighted word (default 1.3)
             - position_y: Vertical position as percentage from top (default 85)
+            - text_style: 'normal' or 'uppercase'
+            - animation_style: 'scale', 'color', 'both', or 'glow'
+            - word_spacing: Space between words in pixels
+            - outline_enabled: Whether to show text outline
+            - outline_color: Outline color
+            - outline_width: Width of outline in pixels
+            - shadow_enabled: Whether to show text shadow
+            - shadow_color: Shadow color
+            - background_enabled: Whether to show background box
+            - background_color: Background color
+            - background_opacity: Background opacity (0-100)
 
     Returns:
         Dict with success status and processed video as base64
@@ -384,29 +502,24 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
     if caption_options is None:
         caption_options = {}
 
-    # Default options
+    # Extract all options with defaults
     font_size = caption_options.get('font_size', 56)
-    font_name = caption_options.get('font_name', 'Arial Bold')
+    font_name = caption_options.get('font_name', 'Arial Black')
     highlight_scale = caption_options.get('highlight_scale', 1.3)
     position_y = caption_options.get('position_y', 85)
-
-    # Convert color names to ASS format (&HBBGGRR)
-    color_map = {
-        'white': '&HFFFFFF',
-        'yellow': '&H00FFFF',
-        'cyan': '&HFFFF00',
-        'green': '&H00FF00',
-        'red': '&H0000FF',
-        'blue': '&HFF0000',
-        'orange': '&H0080FF',
-        'pink': '&HFF00FF',
-    }
-
-    primary_color = caption_options.get('primary_color', 'white')
-    highlight_color = caption_options.get('highlight_color', 'yellow')
-
-    primary_ass = color_map.get(primary_color, '&HFFFFFF')
-    highlight_ass = color_map.get(highlight_color, '&H00FFFF')
+    primary_color = caption_options.get('primary_color', '#ffffff')
+    highlight_color = caption_options.get('highlight_color', '#fbbf24')
+    text_style = caption_options.get('text_style', 'normal')
+    animation_style = caption_options.get('animation_style', 'both')
+    word_spacing = caption_options.get('word_spacing', 8)
+    outline_enabled = caption_options.get('outline_enabled', True)
+    outline_color = caption_options.get('outline_color', '#000000')
+    outline_width = caption_options.get('outline_width', 3)
+    shadow_enabled = caption_options.get('shadow_enabled', True)
+    shadow_color = caption_options.get('shadow_color', '#000000')
+    background_enabled = caption_options.get('background_enabled', False)
+    background_color = caption_options.get('background_color', '#000000')
+    background_opacity = caption_options.get('background_opacity', 50)
 
     try:
         # Decode input video to temp file
@@ -416,15 +529,26 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
         input_file.close()
         input_path = input_file.name
 
-        # Generate ASS subtitles
+        # Generate ASS subtitles with all styling options
         ass_content = generate_ass_subtitles(
             captions,
             font_size=font_size,
             font_name=font_name,
-            primary_color=primary_ass,
-            highlight_color=highlight_ass,
+            primary_color=primary_color,
+            highlight_color=highlight_color,
+            outline_color=outline_color,
             highlight_scale=highlight_scale,
-            position_y=position_y
+            position_y=position_y,
+            text_style=text_style,
+            animation_style=animation_style,
+            word_spacing=word_spacing,
+            outline_enabled=outline_enabled,
+            outline_width=outline_width,
+            shadow_enabled=shadow_enabled,
+            shadow_color=shadow_color,
+            background_enabled=background_enabled,
+            background_color=background_color,
+            background_opacity=background_opacity
         )
 
         # Write ASS to temp file

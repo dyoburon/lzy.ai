@@ -13,6 +13,7 @@ interface Region {
   width: number; // percentage
   height: number; // percentage
   color: string;
+  aspectLocked: boolean; // whether to maintain aspect ratio during resize
 }
 
 interface DragState {
@@ -81,29 +82,73 @@ export default function RegionSelectorPage() {
   // Region selection state
   const [splitRatio, setSplitRatio] = useState(0.6);
   const [topRegionId, setTopRegionId] = useState("content");
+
+  // Calculate the correct aspect ratio for a region based on its split portion
+  // Output is 9:16 (1080x1920), source is 16:9
+  // For a region taking X% of the output height, its output AR is 9:(16*X)
+  // We need to find what dimensions in the 16:9 source match this AR
+  const getTargetAspectRatio = useCallback((regionId: string) => {
+    const isTop = regionId === topRegionId;
+    const portion = isTop ? splitRatio : (1 - splitRatio);
+    // Output dimensions for this region: 1080 x (1920 * portion)
+    // Output aspect ratio = 1080 / (1920 * portion) = 9 / (16 * portion)
+    const outputAR = 9 / (16 * portion);
+    // In the source (16:9), we want width:height to match outputAR
+    // If source is 1920x1080, and we select W x H pixels:
+    // W/H should equal outputAR
+    // As percentages of source: (W%/100 * 1920) / (H%/100 * 1080) = outputAR
+    // W% * 1920 / (H% * 1080) = outputAR
+    // W% / H% = outputAR * 1080 / 1920 = outputAR * 0.5625
+    // So in percentage terms: widthPct / heightPct = outputAR * 9/16
+    return outputAR * (9 / 16);
+  }, [topRegionId, splitRatio]);
+
+  // Calculate initial dimensions for a region to match the output aspect ratio
+  const getCorrectDimensions = useCallback((regionId: string, preferHeight: boolean = true) => {
+    const targetRatio = getTargetAspectRatio(regionId);
+    if (preferHeight) {
+      // Start with 100% height, calculate width
+      const height = 100;
+      const width = Math.min(100, height * targetRatio);
+      return { width, height };
+    } else {
+      // Start with 80% width, calculate height
+      const width = 80;
+      const height = Math.min(100, width / targetRatio);
+      return { width, height };
+    }
+  }, [getTargetAspectRatio]);
+
   // Default regions sized to match 9:16 output with 60/40 split
-  // For 60% top: output AR is 9:(16*0.6)=9:9.6. In 16:9 source, width ~53%, height ~100%
-  // For 40% bottom: output AR is 9:(16*0.4)=9:6.4. In 16:9 source, width ~80%, height ~57%
-  const [regions, setRegions] = useState<Region[]>([
-    {
-      id: "content",
-      label: "Screen Content",
-      x: 2,
-      y: 0,
-      width: 53,
-      height: 100,
-      color: "#8b5cf6",
-    },
-    {
-      id: "webcam",
-      label: "Webcam",
-      x: 58,
-      y: 22,
-      width: 40,
-      height: 56,
-      color: "#22c55e",
-    },
-  ]);
+  const [regions, setRegions] = useState<Region[]>(() => {
+    // For 60% top (content): AR = 9/(16*0.6) = 0.9375, in source terms = 0.9375 * 0.5625 = 0.527
+    // height=100%, width = 100 * 0.527 = 52.7%
+    // For 40% bottom (webcam): AR = 9/(16*0.4) = 1.406, in source terms = 1.406 * 0.5625 = 0.791
+    // height=100%, width = 100 * 0.791 = 79.1% (but we want it smaller, so use 56% height)
+    // For webcam at 56% height: width = 56 * 0.791 = 44.3%
+    return [
+      {
+        id: "content",
+        label: "Screen Content",
+        x: 2,
+        y: 0,
+        width: 53,
+        height: 100,
+        color: "#8b5cf6",
+        aspectLocked: true,
+      },
+      {
+        id: "webcam",
+        label: "Webcam",
+        x: 55,
+        y: 22,
+        width: 44,
+        height: 56,
+        color: "#22c55e",
+        aspectLocked: true,
+      },
+    ];
+  });
 
   const [dragState, setDragState] = useState<DragState>({
     isDragging: false,
@@ -272,7 +317,9 @@ export default function RegionSelectorPage() {
             let newHeight = region.height;
 
             const handle = dragState.resizeHandle;
+            const targetRatio = getTargetAspectRatio(region.id);
 
+            // First calculate the unconstrained new dimensions
             if (handle.includes("e")) {
               newWidth = Math.max(10, Math.min(100 - dragState.startRegionX, dragState.startRegionWidth + deltaX));
             }
@@ -292,6 +339,53 @@ export default function RegionSelectorPage() {
               newY = Math.max(0, newY);
             }
 
+            // If aspect locked, constrain dimensions
+            if (region.aspectLocked) {
+              const isCorner = handle.length === 2;
+              const isHorizontal = handle === "e" || handle === "w";
+              const isVertical = handle === "n" || handle === "s";
+
+              if (isCorner) {
+                // For corners, use the larger delta to determine size
+                const widthFromHeight = newHeight * targetRatio;
+                const heightFromWidth = newWidth / targetRatio;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                  // Width is primary, adjust height
+                  newHeight = Math.min(100, heightFromWidth);
+                  newWidth = newHeight * targetRatio;
+                } else {
+                  // Height is primary, adjust width
+                  newWidth = Math.min(100, widthFromHeight);
+                  newHeight = newWidth / targetRatio;
+                }
+              } else if (isHorizontal) {
+                // Width changed, adjust height
+                newHeight = newWidth / targetRatio;
+                newHeight = Math.min(100, Math.max(10, newHeight));
+                newWidth = newHeight * targetRatio;
+              } else if (isVertical) {
+                // Height changed, adjust width
+                newWidth = newHeight * targetRatio;
+                newWidth = Math.min(100, Math.max(10, newWidth));
+                newHeight = newWidth / targetRatio;
+              }
+
+              // Recalculate position for handles that move the origin
+              if (handle.includes("w")) {
+                newX = dragState.startRegionX + dragState.startRegionWidth - newWidth;
+                newX = Math.max(0, newX);
+              }
+              if (handle.includes("n")) {
+                newY = dragState.startRegionY + dragState.startRegionHeight - newHeight;
+                newY = Math.max(0, newY);
+              }
+            }
+
+            // Ensure we stay within bounds
+            newWidth = Math.min(100 - newX, newWidth);
+            newHeight = Math.min(100 - newY, newHeight);
+
             return { ...region, x: newX, y: newY, width: newWidth, height: newHeight };
           }
 
@@ -299,7 +393,7 @@ export default function RegionSelectorPage() {
         })
       );
     },
-    [dragState, getMousePosition]
+    [dragState, getMousePosition, getTargetAspectRatio]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -329,6 +423,22 @@ export default function RegionSelectorPage() {
   const swapRegions = () => {
     setTopRegionId((prev) => (prev === "content" ? "webcam" : "content"));
   };
+
+  // Recalculate locked region dimensions when split ratio or top region changes
+  const recalculateLockedRegions = useCallback(() => {
+    setRegions(prev => prev.map(region => {
+      if (!region.aspectLocked) return region;
+      const targetRatio = getTargetAspectRatio(region.id);
+      // Keep the same height, adjust width to match target ratio
+      const newWidth = Math.min(100, region.height * targetRatio);
+      return { ...region, width: newWidth };
+    }));
+  }, [getTargetAspectRatio]);
+
+  // Effect to update locked regions when split ratio changes
+  useEffect(() => {
+    recalculateLockedRegions();
+  }, [splitRatio, topRegionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const topRegion = regions.find((r) => r.id === topRegionId);
   const bottomRegion = regions.find((r) => r.id !== topRegionId);
@@ -501,68 +611,6 @@ export default function RegionSelectorPage() {
                   />
                 )}
 
-                {/* Caption Preview Overlay - Shows when captions enabled */}
-                {captionOptions.enabled && (
-                  <div
-                    className="absolute left-0 right-0 flex justify-center px-4 pointer-events-none z-10"
-                    style={{ top: `${captionOptions.position_y}%`, transform: "translateY(-50%)" }}
-                  >
-                    <div
-                      className="px-3 py-1.5 rounded"
-                      style={{
-                        backgroundColor: captionOptions.background_enabled ? `rgba(0,0,0,${captionOptions.background_opacity / 100})` : 'transparent'
-                      }}
-                    >
-                      <span className="flex justify-center flex-wrap" style={{ gap: `${captionOptions.word_spacing}px` }}>
-                        {(() => {
-                          const fontMap: Record<string, string> = {
-                            "Arial": "Arial, sans-serif",
-                            "Arial Black": "'Arial Black', sans-serif",
-                            "Verdana": "Verdana, sans-serif",
-                            "Tahoma": "Tahoma, sans-serif",
-                            "Trebuchet MS": "'Trebuchet MS', sans-serif",
-                            "Georgia": "Georgia, serif",
-                            "Times New Roman": "'Times New Roman', serif",
-                            "Courier New": "'Courier New', monospace",
-                            "Impact": "Impact, sans-serif",
-                            "Comic Sans MS": "'Comic Sans MS', cursive",
-                            "Helvetica": "Helvetica, Arial, sans-serif",
-                            "Palatino": "'Palatino Linotype', Palatino, serif",
-                            "Lucida Console": "'Lucida Console', Monaco, monospace",
-                            "Lucida Sans": "'Lucida Sans Unicode', 'Lucida Grande', sans-serif",
-                            "Garamond": "Garamond, serif",
-                            "Bookman": "'Bookman Old Style', serif",
-                            "Avant Garde": "'Century Gothic', 'Avant Garde', sans-serif",
-                          };
-                          const startIdx = Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group;
-                          return previewWords.slice(startIdx, startIdx + captionOptions.words_per_group).map((word, idx) => {
-                            const isActive = idx === previewWordIndex % captionOptions.words_per_group;
-                            const textColor = isActive ? captionOptions.highlight_color : captionOptions.primary_color;
-                            const displayText = captionOptions.text_style === "uppercase" ? word.toUpperCase() : word;
-                            return (
-                              <span
-                                key={idx}
-                                className="transition-all duration-150"
-                                style={{
-                                  fontFamily: fontMap[captionOptions.font_name] || "Arial, sans-serif",
-                                  fontWeight: "bold",
-                                  fontSize: `${Math.round(captionOptions.font_size / 3)}px`,
-                                  color: textColor,
-                                  transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
-                                  textShadow: captionOptions.shadow_enabled ? `2px 2px 4px rgba(0,0,0,0.8)` : captionOptions.animation_style === "glow" && isActive ? `0 0 10px ${textColor}, 0 0 20px ${textColor}` : "none",
-                                  WebkitTextStroke: captionOptions.outline_enabled ? `${captionOptions.outline_width / 2}px ${captionOptions.outline_color}` : "0",
-                                }}
-                              >
-                                {displayText}
-                              </span>
-                            );
-                          });
-                        })()}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
                 {/* Selection Boxes Overlay */}
                 <div className="absolute inset-0">
                   {regions.map((region) => (
@@ -583,10 +631,13 @@ export default function RegionSelectorPage() {
                       onMouseDown={(e) => handleMouseDown(e, region.id)}
                     >
                       <div
-                        className="absolute -top-6 left-0 px-2 py-0.5 text-xs font-medium text-white rounded"
+                        className="absolute -top-6 left-0 px-2 py-0.5 text-xs font-medium text-white rounded flex items-center gap-1"
                         style={{ backgroundColor: region.color }}
                       >
                         {region.label}
+                        {!region.aspectLocked && (
+                          <span className="text-[10px] opacity-75" title="Will stretch to fit">↔</span>
+                        )}
                       </div>
 
                       {selectedRegion === region.id && (
@@ -618,14 +669,30 @@ export default function RegionSelectorPage() {
                 )}
                 <div className="flex gap-2">
                   {regions.map((region) => (
-                    <button
-                      key={region.id}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm cursor-pointer transition-colors ${selectedRegion === region.id ? "bg-zinc-600" : "bg-zinc-800 hover:bg-zinc-700"}`}
-                      onClick={() => setSelectedRegion(region.id)}
-                    >
-                      <div className="w-2.5 h-2.5 rounded" style={{ backgroundColor: region.color }} />
-                      <span className="text-white">{region.label}</span>
-                    </button>
+                    <div key={region.id} className="flex items-center gap-1">
+                      <button
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-l text-sm cursor-pointer transition-colors ${selectedRegion === region.id ? "bg-zinc-600" : "bg-zinc-800 hover:bg-zinc-700"}`}
+                        onClick={() => setSelectedRegion(region.id)}
+                      >
+                        <div className="w-2.5 h-2.5 rounded" style={{ backgroundColor: region.color }} />
+                        <span className="text-white">{region.label}</span>
+                      </button>
+                      <button
+                        onClick={() => setRegions(prev => prev.map(r => r.id === region.id ? { ...r, aspectLocked: !r.aspectLocked } : r))}
+                        className={`px-2 py-1.5 rounded-r text-sm transition-colors ${region.aspectLocked ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600"}`}
+                        title={region.aspectLocked ? "Aspect ratio locked (no stretching)" : "Aspect ratio unlocked (will stretch to fit)"}
+                      >
+                        {region.aspectLocked ? (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -743,6 +810,84 @@ export default function RegionSelectorPage() {
 
               {captionOptions.enabled && (
                 <div className="space-y-2">
+                  {/* Caption Preview - Phone mockup */}
+                  <div className="flex justify-center mb-3">
+                    <div
+                      className="relative bg-zinc-900 rounded-lg overflow-hidden border border-zinc-600"
+                      style={{ width: "120px", aspectRatio: "9/16" }}
+                    >
+                      {/* Phone content area with caption */}
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-full h-full bg-gradient-to-b from-zinc-800 to-zinc-900" />
+                      </div>
+                      {/* Caption overlay at position */}
+                      <div
+                        className="absolute left-0 right-0 flex justify-center px-2 pointer-events-none"
+                        style={{ top: `${captionOptions.position_y}%`, transform: "translateY(-50%)" }}
+                      >
+                        <div
+                          className="px-2 py-1 rounded"
+                          style={{
+                            backgroundColor: captionOptions.background_enabled ? `rgba(0,0,0,${captionOptions.background_opacity / 100})` : 'transparent'
+                          }}
+                        >
+                          <span className="flex justify-center flex-wrap" style={{ gap: `${Math.max(1, captionOptions.word_spacing / 4)}px` }}>
+                            {(() => {
+                              const fontMap: Record<string, string> = {
+                                "Arial": "Arial, sans-serif",
+                                "Arial Black": "'Arial Black', sans-serif",
+                                "Verdana": "Verdana, sans-serif",
+                                "Tahoma": "Tahoma, sans-serif",
+                                "Trebuchet MS": "'Trebuchet MS', sans-serif",
+                                "Georgia": "Georgia, serif",
+                                "Times New Roman": "'Times New Roman', serif",
+                                "Courier New": "'Courier New', monospace",
+                                "Impact": "Impact, sans-serif",
+                                "Comic Sans MS": "'Comic Sans MS', cursive",
+                                "Helvetica": "Helvetica, Arial, sans-serif",
+                                "Palatino": "'Palatino Linotype', Palatino, serif",
+                                "Lucida Console": "'Lucida Console', Monaco, monospace",
+                                "Lucida Sans": "'Lucida Sans Unicode', 'Lucida Grande', sans-serif",
+                                "Garamond": "Garamond, serif",
+                                "Bookman": "'Bookman Old Style', serif",
+                                "Avant Garde": "'Century Gothic', 'Avant Garde', sans-serif",
+                              };
+                              const startIdx = Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group;
+                              return previewWords.slice(startIdx, startIdx + captionOptions.words_per_group).map((word, idx) => {
+                                const isActive = idx === previewWordIndex % captionOptions.words_per_group;
+                                const textColor = isActive ? captionOptions.highlight_color : captionOptions.primary_color;
+                                const displayText = captionOptions.text_style === "uppercase" ? word.toUpperCase() : word;
+                                // Scale font size for preview (divide by ~5 for phone mockup size)
+                                const previewFontSize = Math.max(8, Math.round(captionOptions.font_size / 5));
+                                return (
+                                  <span
+                                    key={idx}
+                                    className="transition-all duration-150"
+                                    style={{
+                                      fontFamily: fontMap[captionOptions.font_name] || "Arial, sans-serif",
+                                      fontWeight: "bold",
+                                      fontSize: `${previewFontSize}px`,
+                                      color: textColor,
+                                      transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
+                                      textShadow: captionOptions.shadow_enabled
+                                        ? `1px 1px 2px ${captionOptions.shadow_color}`
+                                        : captionOptions.animation_style === "glow" && isActive
+                                          ? `0 0 5px ${textColor}, 0 0 10px ${textColor}`
+                                          : "none",
+                                      WebkitTextStroke: captionOptions.outline_enabled ? `${Math.max(0.5, captionOptions.outline_width / 3)}px ${captionOptions.outline_color}` : "0",
+                                    }}
+                                  >
+                                    {displayText}
+                                  </span>
+                                );
+                              });
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Controls Grid */}
                   <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
                     {/* Font */}
