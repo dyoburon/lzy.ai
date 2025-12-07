@@ -24,15 +24,26 @@ interface ProcessedClip {
   };
 }
 
+interface SeparatedAudio {
+  vocalsAudio: string;
+  musicAudio: string;
+  // Store the original video data before any audio modifications
+  originalVideoData: string;
+}
+
+interface CustomAudioCache {
+  audioData: string;
+  audioName: string;
+}
+
 interface AudioState {
   selectedClipIndex: number | null;
   separating: boolean;
   processing: boolean;
-  hasSeparated: boolean;
-  vocalsAudio: string | null;
-  musicAudio: string | null;
-  customAudio: string | null;
-  customAudioName: string | null;
+  // Cache separated audio per clip index (includes original video for restoration)
+  separatedCache: Record<number, SeparatedAudio>;
+  // Cache custom uploaded audio per clip index
+  customAudioCache: Record<number, CustomAudioCache>;
   vocalsVolume: number;
   musicVolume: number;
   customVolume: number;
@@ -101,11 +112,8 @@ export default function ResultsPage() {
     selectedClipIndex: null,
     separating: false,
     processing: false,
-    hasSeparated: false,
-    vocalsAudio: null,
-    musicAudio: null,
-    customAudio: null,
-    customAudioName: null,
+    separatedCache: {},
+    customAudioCache: {},
     vocalsVolume: 1.0,
     musicVolume: 1.0,
     customVolume: 0.5,
@@ -150,22 +158,33 @@ export default function ResultsPage() {
     };
   }, [videoUrls]);
 
-  // Reset audio state when selecting a different clip
+  // Select a different clip - preserve all caches, reset volumes
   const selectClip = (index: number) => {
-    setAudio({
+    setAudio((prev) => ({
+      ...prev,
       selectedClipIndex: index,
       separating: false,
       processing: false,
-      hasSeparated: false,
-      vocalsAudio: null,
-      musicAudio: null,
-      customAudio: null,
-      customAudioName: null,
+      // Keep the caches, reset volumes to defaults
       vocalsVolume: 1.0,
       musicVolume: 1.0,
       customVolume: 0.5,
-    });
+    }));
   };
+
+  // Helper to check if current clip has separated audio
+  const currentClipHasSeparatedAudio = audio.selectedClipIndex !== null &&
+    audio.separatedCache[audio.selectedClipIndex] !== undefined;
+
+  // Get separated audio for current clip
+  const currentSeparatedAudio = audio.selectedClipIndex !== null
+    ? audio.separatedCache[audio.selectedClipIndex]
+    : null;
+
+  // Get custom audio for current clip
+  const currentCustomAudio = audio.selectedClipIndex !== null
+    ? audio.customAudioCache[audio.selectedClipIndex]
+    : null;
 
   const downloadClip = (clip: ProcessedClip) => {
     if (!clip.processed.video_data) return;
@@ -207,11 +226,18 @@ export default function ResultsPage() {
       if (data.error) {
         alert(`Separation failed: ${data.error}`);
       } else {
+        // Cache the separated audio AND the original video data for this clip
+        // This allows us to restore/remix audio without re-separating
         setAudio((prev) => ({
           ...prev,
-          hasSeparated: true,
-          vocalsAudio: data.vocals,
-          musicAudio: data.music,
+          separatedCache: {
+            ...prev.separatedCache,
+            [audio.selectedClipIndex!]: {
+              vocalsAudio: data.vocals,
+              musicAudio: data.music,
+              originalVideoData: clip.processed.video_data!,
+            },
+          },
         }));
       }
     } catch {
@@ -223,18 +249,33 @@ export default function ResultsPage() {
 
   const handleCustomAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || audio.selectedClipIndex === null) return;
 
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = (reader.result as string).split(",")[1];
+      // Cache the custom audio for this clip
       setAudio((prev) => ({
         ...prev,
-        customAudio: base64,
-        customAudioName: file.name,
+        customAudioCache: {
+          ...prev.customAudioCache,
+          [audio.selectedClipIndex!]: {
+            audioData: base64,
+            audioName: file.name,
+          },
+        },
       }));
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleRemoveCustomAudio = () => {
+    if (audio.selectedClipIndex === null) return;
+    setAudio((prev) => {
+      const newCache = { ...prev.customAudioCache };
+      delete newCache[audio.selectedClipIndex!];
+      return { ...prev, customAudioCache: newCache };
+    });
   };
 
   const handleApplyAudioChanges = async () => {
@@ -242,11 +283,9 @@ export default function ResultsPage() {
     const clip = processedClips[audio.selectedClipIndex];
     if (!clip?.processed.video_data) return;
 
-    // Check if any changes were made
-    const hasVolumeChanges = audio.vocalsVolume !== 1.0 || audio.musicVolume !== 1.0;
-    const hasCustomAudio = !!audio.customAudio;
+    const hasCustomAudio = !!currentCustomAudio;
 
-    if (!audio.hasSeparated && !hasCustomAudio) {
+    if (!currentClipHasSeparatedAudio && !hasCustomAudio) {
       alert("Separate audio first or upload custom audio to apply changes.");
       return;
     }
@@ -254,18 +293,26 @@ export default function ResultsPage() {
     setAudio((prev) => ({ ...prev, processing: true }));
 
     try {
+      // Use the ORIGINAL video data from cache (before any audio modifications)
+      // This ensures we can always restore/remix from the pristine source
+      const videoDataToUse = currentSeparatedAudio?.originalVideoData || clip.processed.video_data;
+
       const response = await fetch(`${API_URL}/api/audio/process`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          video_data: clip.processed.video_data,
+          video_data: videoDataToUse,
           audio_options: {
-            separate: audio.hasSeparated,
+            separate: currentClipHasSeparatedAudio,
             use_vocals: audio.vocalsVolume > 0,
             use_music: audio.musicVolume > 0,
             vocals_volume: audio.vocalsVolume,
             music_volume: audio.musicVolume,
-            custom_audio: audio.customAudio,
+            // Pass cached separated audio so backend doesn't need to re-separate
+            vocals_audio: currentSeparatedAudio?.vocalsAudio,
+            music_audio: currentSeparatedAudio?.musicAudio,
+            // Use cached custom audio for this clip
+            custom_audio: currentCustomAudio?.audioData,
             custom_audio_volume: audio.customVolume,
           },
         }),
@@ -298,14 +345,12 @@ export default function ResultsPage() {
         newUrls[audio.selectedClipIndex] = URL.createObjectURL(blob);
         setVideoUrls(newUrls);
 
-        // Reset separation state (they'd need to re-separate after applying)
+        // Reset volumes but keep all caches (separated audio + custom audio)
         setAudio((prev) => ({
           ...prev,
-          hasSeparated: false,
-          vocalsAudio: null,
-          musicAudio: null,
           vocalsVolume: 1.0,
           musicVolume: 1.0,
+          customVolume: 0.5,
         }));
       }
     } catch {
@@ -405,7 +450,13 @@ export default function ResultsPage() {
         </div>
 
         {/* Processed Clips Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+        <div className={`grid gap-6 mb-12 ${
+          processedClips.length === 1
+            ? "max-w-sm mx-auto"
+            : processedClips.length === 2
+              ? "md:grid-cols-2 max-w-2xl mx-auto"
+              : "md:grid-cols-2 lg:grid-cols-3"
+        }`}>
           {processedClips.map((clip, index) => (
             <div
               key={index}
@@ -496,7 +547,7 @@ export default function ResultsPage() {
                     <div className="p-3 bg-amber-900/30 border border-amber-700/50 rounded-lg text-amber-400 text-sm">
                       Demucs not installed. Run: <code className="bg-zinc-800 px-1 rounded">pip install demucs</code>
                     </div>
-                  ) : audio.hasSeparated ? (
+                  ) : currentClipHasSeparatedAudio ? (
                     <div className="space-y-3">
                       <div className="p-3 bg-green-900/30 border border-green-700/50 rounded-lg text-green-400 text-sm flex items-center gap-2">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -510,14 +561,14 @@ export default function ResultsPage() {
                         <p className="text-xs text-zinc-500 mb-2">Preview separated audio:</p>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-green-400 w-16">Vocals:</span>
-                          {audio.vocalsAudio && (
-                            <audio controls className="h-7 flex-1" src={`data:audio/mp3;base64,${audio.vocalsAudio}`} />
+                          {currentSeparatedAudio?.vocalsAudio && (
+                            <audio controls className="h-7 flex-1" src={`data:audio/mp3;base64,${currentSeparatedAudio.vocalsAudio}`} />
                           )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-blue-400 w-16">Music:</span>
-                          {audio.musicAudio && (
-                            <audio controls className="h-7 flex-1" src={`data:audio/mp3;base64,${audio.musicAudio}`} />
+                          {currentSeparatedAudio?.musicAudio && (
+                            <audio controls className="h-7 flex-1" src={`data:audio/mp3;base64,${currentSeparatedAudio.musicAudio}`} />
                           )}
                         </div>
                       </div>
@@ -561,17 +612,17 @@ export default function ResultsPage() {
                       label="Vocals / Speech"
                       value={audio.vocalsVolume}
                       onChange={(v) => setAudio((prev) => ({ ...prev, vocalsVolume: v }))}
-                      disabled={!audio.hasSeparated}
+                      disabled={!currentClipHasSeparatedAudio}
                       color="green"
                     />
                     <VolumeSlider
                       label="Background Music"
                       value={audio.musicVolume}
                       onChange={(v) => setAudio((prev) => ({ ...prev, musicVolume: v }))}
-                      disabled={!audio.hasSeparated}
+                      disabled={!currentClipHasSeparatedAudio}
                       color="blue"
                     />
-                    {!audio.hasSeparated && (
+                    {!currentClipHasSeparatedAudio && (
                       <p className="text-xs text-zinc-500 text-center">
                         Separate audio first to adjust individual volumes
                       </p>
@@ -599,17 +650,17 @@ export default function ResultsPage() {
                     className="hidden"
                   />
 
-                  {audio.customAudio ? (
+                  {currentCustomAudio ? (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between p-3 bg-zinc-900/50 rounded-lg">
                         <div className="flex items-center gap-2 overflow-hidden">
                           <svg className="w-5 h-5 text-orange-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                           </svg>
-                          <span className="text-white text-sm truncate">{audio.customAudioName}</span>
+                          <span className="text-white text-sm truncate">{currentCustomAudio.audioName}</span>
                         </div>
                         <button
-                          onClick={() => setAudio((prev) => ({ ...prev, customAudio: null, customAudioName: null }))}
+                          onClick={handleRemoveCustomAudio}
                           className="p-1 text-zinc-400 hover:text-red-400 transition-colors flex-shrink-0"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -617,6 +668,17 @@ export default function ResultsPage() {
                           </svg>
                         </button>
                       </div>
+
+                      {/* Audio preview player */}
+                      <div className="p-3 bg-zinc-900/50 rounded-lg">
+                        <p className="text-xs text-zinc-500 mb-2">Preview:</p>
+                        <audio
+                          controls
+                          className="w-full h-8"
+                          src={`data:audio/mp3;base64,${currentCustomAudio.audioData}`}
+                        />
+                      </div>
+
                       <div className="p-4 bg-zinc-900/50 rounded-lg">
                         <VolumeSlider
                           label="Custom Audio Volume"
@@ -625,6 +687,14 @@ export default function ResultsPage() {
                           color="orange"
                         />
                       </div>
+
+                      {/* Upload different button */}
+                      <button
+                        onClick={() => audioInputRef.current?.click()}
+                        className="w-full px-3 py-2 border border-zinc-600 hover:border-orange-500 text-zinc-400 hover:text-orange-400 rounded-lg transition-colors text-sm"
+                      >
+                        Upload Different Audio
+                      </button>
                     </div>
                   ) : (
                     <button
@@ -642,7 +712,7 @@ export default function ResultsPage() {
                 {/* Apply Button */}
                 <button
                   onClick={handleApplyAudioChanges}
-                  disabled={audio.processing || audio.separating || (!audio.hasSeparated && !audio.customAudio)}
+                  disabled={audio.processing || audio.separating || (!currentClipHasSeparatedAudio && !currentCustomAudio)}
                   className="w-full px-6 py-4 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-lg"
                 >
                   {audio.processing ? (
@@ -662,7 +732,7 @@ export default function ResultsPage() {
                   )}
                 </button>
 
-                {!audio.hasSeparated && !audio.customAudio && (
+                {!currentClipHasSeparatedAudio && !currentCustomAudio && (
                   <p className="text-xs text-zinc-500 text-center">
                     Separate audio or upload custom audio to enable this button
                   </p>

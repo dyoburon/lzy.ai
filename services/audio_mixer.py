@@ -377,6 +377,8 @@ def process_video_audio(video_data_base64, audio_options):
             - use_music: Boolean - include original music in output (default True)
             - vocals_volume: Float - vocals volume 0.0-2.0 (default 1.0)
             - music_volume: Float - music volume 0.0-2.0 (default 1.0)
+            - vocals_audio: Base64 pre-separated vocals audio (optional, skips re-separation)
+            - music_audio: Base64 pre-separated music audio (optional, skips re-separation)
             - custom_audio: Base64 audio to mix in (optional)
             - custom_audio_volume: Float - custom audio volume (default 0.5)
             - fade_in: Float - fade in duration in seconds (default 0)
@@ -392,6 +394,9 @@ def process_video_audio(video_data_base64, audio_options):
         use_music = audio_options.get('use_music', True)
         vocals_volume = audio_options.get('vocals_volume', 1.0)
         music_volume = audio_options.get('music_volume', 1.0)
+        # Pre-separated audio from cache (avoids re-separation)
+        vocals_audio = audio_options.get('vocals_audio')
+        music_audio = audio_options.get('music_audio')
         custom_audio = audio_options.get('custom_audio')
         custom_audio_volume = audio_options.get('custom_audio_volume', 0.5)
 
@@ -408,17 +413,37 @@ def process_video_audio(video_data_base64, audio_options):
                 "message": "No audio changes requested"
             }
 
-        # Extract audio from video
-        extract_result = extract_audio_from_video(video_data_base64)
-        if 'error' in extract_result:
-            return extract_result
-
-        original_audio_path = extract_result['audio_path']
         tracks_to_mix = []
-        cleanup_paths = [original_audio_path]
+        cleanup_paths = []
 
         try:
-            if separate:
+            # Check if we have pre-separated audio from cache
+            if vocals_audio and music_audio:
+                # Use cached separated audio - no need to re-separate!
+                print("[audio_mixer] Using cached separated audio")
+
+                # Add vocals if requested
+                if use_vocals and vocals_volume > 0:
+                    tracks_to_mix.append({
+                        'data': vocals_audio,
+                        'volume': vocals_volume
+                    })
+
+                # Add music if requested
+                if use_music and music_volume > 0:
+                    tracks_to_mix.append({
+                        'data': music_audio,
+                        'volume': music_volume
+                    })
+            elif separate:
+                # Need to separate - extract audio from video first
+                extract_result = extract_audio_from_video(video_data_base64)
+                if 'error' in extract_result:
+                    return extract_result
+
+                original_audio_path = extract_result['audio_path']
+                cleanup_paths.append(original_audio_path)
+
                 # Separate audio into stems
                 separation_result = separate_audio_stems(original_audio_path)
                 if 'error' in separation_result:
@@ -442,7 +467,14 @@ def process_video_audio(video_data_base64, audio_options):
                 if separation_result.get('output_dir'):
                     cleanup_paths.append(separation_result['output_dir'])
             else:
-                # Use original audio
+                # Use original audio - extract from video
+                extract_result = extract_audio_from_video(video_data_base64)
+                if 'error' in extract_result:
+                    return extract_result
+
+                original_audio_path = extract_result['audio_path']
+                cleanup_paths.append(original_audio_path)
+
                 if use_vocals or use_music:  # Either means use original
                     tracks_to_mix.append({
                         'path': original_audio_path,
