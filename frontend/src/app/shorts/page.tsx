@@ -318,6 +318,52 @@ export default function ShortsPage() {
           <p className="text-zinc-400">
             Upload your video, provide the YouTube URL, and let AI find the best moments.
           </p>
+
+          {/* DEBUG: Use Sample Short Button */}
+          <button
+            onClick={async () => {
+              // Fetch sample short from backend
+              try {
+                const response = await fetch(`${API_URL}/api/debug/sample-short`);
+                const data = await response.json();
+
+                if (data.error) {
+                  alert(`Error: ${data.error}\n\nTo use this feature, place a sample video at: samples/sample_short.mp4`);
+                  return;
+                }
+
+                // Create processed clip from sample
+                const sampleClip = {
+                  moment: {
+                    start_time: "0:00",
+                    end_time: "0:30",
+                    title: "Sample Debug Short",
+                    reason: "This is a sample short for testing the audio mixer",
+                    viral_score: 8,
+                  },
+                  original_filename: "sample_short.mp4",
+                  processed: {
+                    success: true,
+                    video_data: data.video_data,
+                    file_size: data.file_size,
+                    dimensions: { width: 1080, height: 1920 },
+                    captions_applied: false,
+                  },
+                };
+
+                // Store in clip store and navigate
+                const { setProcessedClips } = await import("@/lib/clipStore");
+                setProcessedClips([sampleClip]);
+                router.push("/region-selector/results");
+              } catch (err) {
+                alert("Failed to load sample short. Make sure the backend is running.");
+              }
+            }}
+            className="mt-4 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-2"
+          >
+            <span className="text-xs px-1.5 py-0.5 bg-amber-800 rounded">DEBUG</span>
+            Use Sample Short
+          </button>
         </div>
 
         {/* Missing Environment Variables */}
