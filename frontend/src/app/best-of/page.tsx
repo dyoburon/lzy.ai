@@ -56,8 +56,11 @@ function MissingEnvMessage({ missingVar }: { missingVar: string }) {
 export default function BestOfPage() {
   const [url, setUrl] = useState("");
   const [numClips, setNumClips] = useState(5);
-  const [targetDuration, setTargetDuration] = useState(10);
+  const [avgClipLength, setAvgClipLength] = useState(60); // seconds
   const [customPrompt, setCustomPrompt] = useState("");
+
+  // Calculate estimated total duration
+  const estimatedDuration = numClips * avgClipLength;
   const [showCustomPrompt, setShowCustomPrompt] = useState(false);
   const [useCrossfade, setUseCrossfade] = useState(false);
   const [crossfadeDuration, setCrossfadeDuration] = useState(0.5);
@@ -192,7 +195,8 @@ export default function BestOfPage() {
         body: JSON.stringify({
           url,
           num_clips: numClips,
-          target_duration_minutes: targetDuration,
+          target_duration_minutes: Math.round(estimatedDuration / 60),
+          avg_clip_length_seconds: avgClipLength,
           custom_prompt: customPrompt || undefined,
         }),
       });
@@ -413,23 +417,32 @@ export default function BestOfPage() {
                     </select>
                   </div>
 
-                  {/* Target duration */}
+                  {/* Average clip length */}
                   <div>
                     <label className="block text-sm text-zinc-400 mb-1">
-                      Target Duration
+                      Avg Clip Length
                     </label>
                     <select
-                      value={targetDuration}
-                      onChange={(e) => setTargetDuration(parseInt(e.target.value))}
+                      value={avgClipLength}
+                      onChange={(e) => setAvgClipLength(parseInt(e.target.value))}
                       className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500"
                     >
-                      {[5, 10, 15, 20, 30].map((n) => (
-                        <option key={n} value={n}>
-                          ~{n} minutes
-                        </option>
-                      ))}
+                      <option value={30}>~30 seconds</option>
+                      <option value={60}>~1 minute</option>
+                      <option value={90}>~1.5 minutes</option>
+                      <option value={120}>~2 minutes</option>
+                      <option value={180}>~3 minutes</option>
                     </select>
                   </div>
+                </div>
+
+                {/* Estimated total duration */}
+                <div className="text-sm text-zinc-400 bg-zinc-900/50 px-4 py-2 rounded-lg">
+                  Estimated total duration:{" "}
+                  <span className="text-purple-400 font-medium">
+                    ~{Math.round(estimatedDuration / 60)} minutes
+                  </span>
+                  {" "}({numClips} clips × {avgClipLength >= 60 ? `${avgClipLength / 60} min` : `${avgClipLength}s`})
                 </div>
 
                 {/* Crossfade option */}

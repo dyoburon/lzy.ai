@@ -4,6 +4,35 @@ import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { getProcessedClips, setProcessedClips } from "@/lib/clipStore";
 
+interface CaptionWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
+interface CaptionGroup {
+  text: string;
+  word_count: number;
+  start: number;
+  end: number;
+  duration: number;
+  words: CaptionWord[];
+}
+
+interface CaptionDebug {
+  settings: {
+    words_per_group: number;
+    silence_threshold: number;
+  };
+  words: CaptionWord[];
+  groups: CaptionGroup[];
+  gaps: {
+    after_group: number;
+    gap_seconds: number;
+    is_silence_break: boolean;
+  }[];
+}
+
 interface ProcessedClip {
   moment: {
     start_time: string;
@@ -21,6 +50,7 @@ interface ProcessedClip {
     error?: string;
     captions_applied?: boolean;
     caption_error?: string;
+    caption_debug?: CaptionDebug;
   };
 }
 
@@ -852,6 +882,178 @@ export default function ResultsPage() {
             </div>
           )}
         </div>
+
+        {/* Caption Debug Section */}
+        {selectedClip?.processed.caption_debug && (
+          <div className="mt-8 p-6 bg-zinc-800/50 border border-zinc-700 rounded-xl">
+            <div className="flex items-center gap-3 mb-6">
+              <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              <h2 className="text-xl font-bold text-white">Caption Debug Info</h2>
+            </div>
+
+            {(() => {
+              const debug = selectedClip.processed.caption_debug!;
+              return (
+                <div className="space-y-6">
+                  {/* Settings Used */}
+                  <div className="p-4 bg-zinc-900/50 rounded-lg">
+                    <h3 className="text-sm font-medium text-zinc-400 mb-2">Settings Used</h3>
+                    <div className="flex gap-6 text-sm">
+                      <div>
+                        <span className="text-zinc-500">Max Words per Group:</span>{" "}
+                        <span className="text-white font-mono">{debug.settings.words_per_group}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Silence Threshold:</span>{" "}
+                        <span className="text-white font-mono">{debug.settings.silence_threshold}s</span>{" "}
+                        <span className="text-zinc-600">({debug.settings.silence_threshold * 1000}ms)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary Stats */}
+                  <div className="p-4 bg-zinc-900/50 rounded-lg">
+                    <h3 className="text-sm font-medium text-zinc-400 mb-2">Summary</h3>
+                    <div className="flex gap-6 text-sm">
+                      <div>
+                        <span className="text-zinc-500">Total Words:</span>{" "}
+                        <span className="text-white font-mono">{debug.words.length}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Caption Groups:</span>{" "}
+                        <span className="text-white font-mono">{debug.groups.length}</span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Silence Breaks Detected:</span>{" "}
+                        <span className="text-yellow-400 font-mono">
+                          {debug.gaps.filter(g => g.is_silence_break).length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Caption Groups Timeline */}
+                  <div>
+                    <h3 className="text-sm font-medium text-zinc-400 mb-3">Caption Groups (what appears on screen)</h3>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {debug.groups.map((group, idx) => {
+                        const gapAfter = debug.gaps.find(g => g.after_group === idx);
+                        return (
+                          <div key={idx}>
+                            <div className={`p-3 rounded-lg border ${
+                              group.word_count < debug.settings.words_per_group
+                                ? "bg-yellow-900/20 border-yellow-700/50"
+                                : "bg-zinc-900/50 border-zinc-700/50"
+                            }`}>
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-xs text-zinc-500">Group {idx + 1}</span>
+                                    {group.word_count < debug.settings.words_per_group && (
+                                      <span className="px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 text-xs rounded">
+                                        {group.word_count} word{group.word_count > 1 ? "s" : ""} (silence break)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-white font-medium">&quot;{group.text}&quot;</p>
+                                </div>
+                                <div className="text-right text-xs">
+                                  <div className="text-zinc-400">
+                                    {group.start.toFixed(2)}s - {group.end.toFixed(2)}s
+                                  </div>
+                                  <div className="text-zinc-500">
+                                    ({group.duration.toFixed(2)}s)
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Word-level timing */}
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {group.words.map((word, wIdx) => (
+                                  <span
+                                    key={wIdx}
+                                    className="px-2 py-0.5 bg-zinc-800 text-zinc-300 text-xs rounded"
+                                    title={`${word.start.toFixed(2)}s - ${word.end.toFixed(2)}s`}
+                                  >
+                                    {word.word}
+                                    <span className="text-zinc-600 ml-1">
+                                      {word.start.toFixed(1)}s
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            {/* Gap indicator */}
+                            {gapAfter && (
+                              <div className={`my-1 px-3 py-1 text-xs flex items-center gap-2 ${
+                                gapAfter.is_silence_break
+                                  ? "text-yellow-400"
+                                  : "text-zinc-600"
+                              }`}>
+                                <div className={`flex-1 border-t ${
+                                  gapAfter.is_silence_break
+                                    ? "border-yellow-700 border-dashed"
+                                    : "border-zinc-700"
+                                }`} />
+                                <span>
+                                  {gapAfter.gap_seconds > 0 ? `+${gapAfter.gap_seconds.toFixed(3)}s gap` : "no gap"}
+                                  {gapAfter.is_silence_break && " (BREAK)"}
+                                </span>
+                                <div className={`flex-1 border-t ${
+                                  gapAfter.is_silence_break
+                                    ? "border-yellow-700 border-dashed"
+                                    : "border-zinc-700"
+                                }`} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Raw Word Timestamps (collapsible) */}
+                  <details className="p-4 bg-zinc-900/50 rounded-lg">
+                    <summary className="text-sm font-medium text-zinc-400 cursor-pointer hover:text-zinc-300">
+                      Raw Word Timestamps ({debug.words.length} words)
+                    </summary>
+                    <div className="mt-3 max-h-48 overflow-y-auto">
+                      <div className="flex flex-wrap gap-1">
+                        {debug.words.map((word, idx) => {
+                          // Check if there's a big gap before this word
+                          const prevWord = idx > 0 ? debug.words[idx - 1] : null;
+                          const gapBefore = prevWord ? word.start - prevWord.end : 0;
+                          const isSilenceBreak = gapBefore > debug.settings.silence_threshold;
+
+                          return (
+                            <span key={idx} className="flex items-center">
+                              {isSilenceBreak && (
+                                <span className="text-yellow-500 mx-1">|</span>
+                              )}
+                              <span
+                                className={`px-1.5 py-0.5 text-xs rounded ${
+                                  isSilenceBreak
+                                    ? "bg-yellow-900/30 text-yellow-300"
+                                    : "bg-zinc-800 text-zinc-400"
+                                }`}
+                                title={`${word.start.toFixed(3)}s - ${word.end.toFixed(3)}s${
+                                  isSilenceBreak ? ` (${gapBefore.toFixed(3)}s gap before)` : ""
+                                }`}
+                              >
+                                {word.word}
+                              </span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </main>
     </div>
   );

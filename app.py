@@ -654,6 +654,7 @@ def bestof_detect_moments():
         "url": "YouTube video URL",
         "num_clips": 5,  // Optional, default 5
         "target_duration_minutes": 10,  // Optional, default 10
+        "avg_clip_length_seconds": 60,  // Optional, default 60
         "custom_prompt": "..."  // Optional custom instructions
     }
 
@@ -669,6 +670,7 @@ def bestof_detect_moments():
     video_url = data.get('url')
     num_clips = data.get('num_clips', 5)
     target_duration = data.get('target_duration_minutes', 10)
+    avg_clip_length = data.get('avg_clip_length_seconds', 60)
     custom_prompt = data.get('custom_prompt')
 
     if not video_url:
@@ -684,6 +686,7 @@ def bestof_detect_moments():
         transcript_result['full_text'],
         num_clips=num_clips,
         target_duration_minutes=target_duration,
+        avg_clip_length_seconds=avg_clip_length,
         custom_prompt=custom_prompt
     )
 

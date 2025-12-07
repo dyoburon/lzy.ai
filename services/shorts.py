@@ -685,6 +685,45 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
             "captions_applied": False
         }
 
+    # Build debug info for caption groups
+    caption_debug = {
+        "settings": {
+            "words_per_group": words_per_group,
+            "silence_threshold": silence_threshold,
+        },
+        "words": transcription_result.get('words', []),
+        "groups": [
+            {
+                "text": g['text'],
+                "word_count": len(g['words']),
+                "start": g['start'],
+                "end": g['end'],
+                "duration": round(g['end'] - g['start'], 3),
+                "words": [
+                    {
+                        "word": w['word'],
+                        "start": w['start'],
+                        "end": w['end'],
+                    }
+                    for w in g['words']
+                ]
+            }
+            for g in captions
+        ],
+        "gaps": []  # Gaps between groups
+    }
+
+    # Calculate gaps between groups (silence breaks)
+    for i in range(1, len(captions)):
+        prev_end = captions[i-1]['end']
+        curr_start = captions[i]['start']
+        gap = round(curr_start - prev_end, 3)
+        caption_debug["gaps"].append({
+            "after_group": i - 1,
+            "gap_seconds": gap,
+            "is_silence_break": gap > silence_threshold
+        })
+
     return {
         "success": True,
         "video_data": caption_result['video_data'],
@@ -692,7 +731,8 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
         "dimensions": vertical_result.get('dimensions', {"width": 1080, "height": 1920}),
         "captions_applied": True,
         "transcription": transcription_result.get('text', ''),
-        "word_count": len(transcription_result.get('words', []))
+        "word_count": len(transcription_result.get('words', [])),
+        "caption_debug": caption_debug
     }
 
 

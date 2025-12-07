@@ -62,7 +62,7 @@ def get_transcript_for_highlights(video_url):
         return {"error": str(e)}
 
 
-def detect_highlight_moments(transcript_text, num_clips=5, target_duration_minutes=10, custom_prompt=None):
+def detect_highlight_moments(transcript_text, num_clips=5, target_duration_minutes=10, avg_clip_length_seconds=60, custom_prompt=None):
     """
     Uses Gemini to detect the best highlight moments for a compilation video.
 
@@ -70,6 +70,7 @@ def detect_highlight_moments(transcript_text, num_clips=5, target_duration_minut
         transcript_text: The full transcript with timestamps
         num_clips: Number of clips to identify (default 5)
         target_duration_minutes: Target total duration in minutes (default 10)
+        avg_clip_length_seconds: Average length of each clip in seconds (default 60)
         custom_prompt: Optional custom instructions to guide moment selection
 
     Returns:
@@ -80,6 +81,12 @@ def detect_highlight_moments(transcript_text, num_clips=5, target_duration_minut
 
     # Clamp num_clips to valid range
     num_clips = max(1, min(20, num_clips))
+
+    # Format clip length for display
+    if avg_clip_length_seconds >= 60:
+        clip_length_str = f"around {avg_clip_length_seconds // 60} minute{'s' if avg_clip_length_seconds >= 120 else ''}"
+    else:
+        clip_length_str = f"around {avg_clip_length_seconds} seconds"
 
     try:
         model = genai.GenerativeModel('gemini-2.5-pro')
@@ -93,13 +100,14 @@ Here is the transcript:
 The creator has given you these instructions about what they're looking for:
 {custom_prompt}
 
-Find {num_clips} segments that match their criteria. The total duration should be around {target_duration_minutes} minutes.
+Find {num_clips} segments that match their criteria. Each clip should be {clip_length_str} long (total ~{target_duration_minutes} minutes).
 
 IMPORTANT RULES:
 1. Each segment should be self-contained and make sense on its own
 2. Segments should have clear beginnings and endings (don't cut mid-sentence)
 3. Order the segments in a way that flows well for a compilation
 4. Prefer moments with high energy, humor, insights, or memorable quotes
+5. Each clip should be approximately {clip_length_str} - not too short, not too long
 
 Return your response as a JSON array with this exact format:
 [
@@ -119,7 +127,7 @@ Return ONLY the JSON array, no other text or markdown formatting."""
 Here is the transcript:
 {transcript_text}
 
-Find the {num_clips} BEST moments for a highlight compilation. The total duration should be around {target_duration_minutes} minutes.
+Find the {num_clips} BEST moments for a highlight compilation. Each clip should be {clip_length_str} long (total ~{target_duration_minutes} minutes).
 
 Look for:
 - Funniest moments
@@ -134,7 +142,7 @@ IMPORTANT RULES:
 2. Don't cut mid-sentence or mid-thought
 3. Order segments to create good flow (don't just use chronological order)
 4. Vary the types of moments (mix funny with serious, etc.)
-5. Each clip should be 30 seconds to 3 minutes
+5. Each clip should be approximately {clip_length_str} - aim for this length consistently
 
 Return your response as a JSON array with this exact format:
 [
@@ -296,11 +304,15 @@ def _concatenate_direct(clip_paths, output_path):
 def _concatenate_with_crossfade(clip_paths, output_path, crossfade_duration):
     """
     Concatenate clips with crossfade transitions (requires re-encoding).
-    """
-    # Build filter_complex for xfade transitions
-    # This is more complex but gives nice transitions
 
+    Uses xfade for video transitions and acrossfade for audio transitions.
+    The acrossfade filter works by taking pairs of audio streams and crossfading
+    them at the transition point.
+    """
     num_clips = len(clip_paths)
+
+    if num_clips < 2:
+        return _concatenate_direct(clip_paths, output_path)
 
     # Build input arguments
     inputs = []
@@ -322,15 +334,18 @@ def _concatenate_with_crossfade(clip_paths, output_path, crossfade_duration):
         else:
             durations.append(10.0)  # Fallback
 
-    # Build xfade filter chain
+    # Build xfade filter chain for video
     # Each xfade takes two inputs and produces one output
     filter_parts = []
-    current_offset = 0
+
+    # Calculate cumulative offsets for xfade
+    # xfade offset is when the transition STARTS (from the beginning of the output)
+    cumulative_offset = 0
 
     for i in range(num_clips - 1):
         if i == 0:
-            input_a = f"[0:v]"
-            input_b = f"[1:v]"
+            input_a = "[0:v]"
+            input_b = "[1:v]"
         else:
             input_a = f"[v{i}]"
             input_b = f"[{i+1}:v]"
@@ -340,20 +355,21 @@ def _concatenate_with_crossfade(clip_paths, output_path, crossfade_duration):
         else:
             output = f"[v{i+1}]"
 
-        # Calculate offset (when to start the transition)
-        current_offset += durations[i] - crossfade_duration
+        # The offset for xfade is when the transition starts
+        # First clip plays, then at (duration - crossfade) the transition begins
+        cumulative_offset += durations[i] - crossfade_duration
 
         filter_parts.append(
-            f"{input_a}{input_b}xfade=transition=fade:duration={crossfade_duration}:offset={current_offset}{output}"
+            f"{input_a}{input_b}xfade=transition=fade:duration={crossfade_duration}:offset={cumulative_offset}{output}"
         )
 
-    # Audio crossfade
-    audio_parts = []
-    current_offset = 0
+    # Build acrossfade filter chain for audio
+    # acrossfade works differently - it crossfades between two audio streams
+    # Parameters: d=duration, c1=curve for first stream, c2=curve for second stream
     for i in range(num_clips - 1):
         if i == 0:
-            input_a = f"[0:a]"
-            input_b = f"[1:a]"
+            input_a = "[0:a]"
+            input_b = "[1:a]"
         else:
             input_a = f"[a{i}]"
             input_b = f"[{i+1}:a]"
@@ -363,10 +379,10 @@ def _concatenate_with_crossfade(clip_paths, output_path, crossfade_duration):
         else:
             output = f"[a{i+1}]"
 
-        current_offset += durations[i] - crossfade_duration
-
+        # acrossfade just takes duration (d) - it handles the timing automatically
+        # c1 and c2 control fade curves (tri = linear, exp = exponential, etc.)
         filter_parts.append(
-            f"{input_a}{input_b}acrossfade=d={crossfade_duration}:o={current_offset}{output}"
+            f"{input_a}{input_b}acrossfade=d={crossfade_duration}:c1=tri:c2=tri{output}"
         )
 
     filter_complex = ';'.join(filter_parts)
