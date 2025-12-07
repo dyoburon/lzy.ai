@@ -364,6 +364,50 @@ export default function ShortsPage() {
             <span className="text-xs px-1.5 py-0.5 bg-amber-800 rounded">DEBUG</span>
             Use Sample Short
           </button>
+
+          {/* DEBUG: Use Sample Clip Button - Goes to editing step */}
+          <button
+            onClick={async () => {
+              // Fetch sample clip from backend
+              try {
+                const response = await fetch(`${API_URL}/api/debug/sample-clip`);
+                const data = await response.json();
+
+                if (data.error) {
+                  alert(`Error: ${data.error}\n\nTo use this feature, place a sample video at: samples/sample_clip.mp4`);
+                  return;
+                }
+
+                // Create raw clip for region selector
+                const sampleClip = {
+                  moment: {
+                    start_time: "0:00",
+                    end_time: "0:30",
+                    title: "Sample Debug Clip",
+                    reason: "This is a sample clip for testing the region selector",
+                    viral_score: 8,
+                  },
+                  clip_result: {
+                    success: true,
+                    video_data: data.video_data,
+                    filename: "sample_clip.mp4",
+                    duration_seconds: 30,
+                    file_size: data.file_size,
+                  },
+                };
+
+                // Store in clip store and navigate to region selector (editing step)
+                setPendingClips([sampleClip]);
+                router.push("/region-selector");
+              } catch (err) {
+                alert("Failed to load sample clip. Make sure the backend is running.");
+              }
+            }}
+            className="mt-4 ml-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-2"
+          >
+            <span className="text-xs px-1.5 py-0.5 bg-amber-800 rounded">DEBUG</span>
+            Use Sample Clip
+          </button>
         </div>
 
         {/* Missing Environment Variables */}

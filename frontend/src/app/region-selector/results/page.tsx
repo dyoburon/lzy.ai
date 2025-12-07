@@ -34,6 +34,11 @@ interface SeparatedAudio {
 interface CustomAudioCache {
   audioData: string;
   audioName: string;
+  // Video state before this custom audio was applied (for revert)
+  preApplyVideoData?: string;
+  preApplyFileSize?: number;
+  // Whether this custom audio has been applied to the video
+  isApplied: boolean;
 }
 
 interface AudioState {
@@ -254,7 +259,7 @@ export default function ResultsPage() {
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = (reader.result as string).split(",")[1];
-      // Cache the custom audio for this clip
+      // Cache the custom audio for this clip (not applied yet)
       setAudio((prev) => ({
         ...prev,
         customAudioCache: {
@@ -262,14 +267,77 @@ export default function ResultsPage() {
           [audio.selectedClipIndex!]: {
             audioData: base64,
             audioName: file.name,
+            isApplied: false,
           },
         },
       }));
     };
     reader.readAsDataURL(file);
+
+    // Reset file input so the same file can be selected again
+    e.target.value = "";
   };
 
-  const handleRemoveCustomAudio = () => {
+  // Revert applied audio (X button) - keeps audio in cache so they can re-apply
+  const handleRevertCustomAudio = async () => {
+    if (audio.selectedClipIndex === null) return;
+    const clipIndex = audio.selectedClipIndex;
+    const customAudio = audio.customAudioCache[clipIndex];
+
+    if (!customAudio) return;
+
+    // If the audio was applied, revert the video to pre-apply state
+    if (customAudio.isApplied && customAudio.preApplyVideoData) {
+      // Revert to the video state before custom audio was applied
+      const newClips = [...processedClips];
+      newClips[clipIndex] = {
+        ...newClips[clipIndex],
+        processed: {
+          ...newClips[clipIndex].processed,
+          video_data: customAudio.preApplyVideoData,
+          file_size: customAudio.preApplyFileSize,
+        },
+      };
+      setProcessedClipsState(newClips);
+      setProcessedClips(newClips);
+
+      // Update video URL
+      const newUrls = [...videoUrls];
+      if (newUrls[clipIndex]) {
+        URL.revokeObjectURL(newUrls[clipIndex]);
+      }
+      const blob = base64ToBlob(customAudio.preApplyVideoData, "video/mp4");
+      newUrls[clipIndex] = URL.createObjectURL(blob);
+      setVideoUrls(newUrls);
+
+      // Mark as not applied, but KEEP the audio data so they can re-apply
+      // Clear the preApply data since we've reverted (prevents memory bloat)
+      setAudio((prev) => ({
+        ...prev,
+        customAudioCache: {
+          ...prev.customAudioCache,
+          [clipIndex]: {
+            audioData: customAudio.audioData,
+            audioName: customAudio.audioName,
+            isApplied: false,
+            // Clear pre-apply data since we've reverted
+            preApplyVideoData: undefined,
+            preApplyFileSize: undefined,
+          },
+        },
+      }));
+    } else {
+      // Not applied yet, just remove from cache entirely
+      setAudio((prev) => {
+        const newCache = { ...prev.customAudioCache };
+        delete newCache[clipIndex];
+        return { ...prev, customAudioCache: newCache };
+      });
+    }
+  };
+
+  // Completely remove custom audio from cache (used when uploading different audio)
+  const handleDeleteCustomAudio = () => {
     if (audio.selectedClipIndex === null) return;
     setAudio((prev) => {
       const newCache = { ...prev.customAudioCache };
@@ -291,6 +359,10 @@ export default function ResultsPage() {
     }
 
     setAudio((prev) => ({ ...prev, processing: true }));
+
+    // Store the current video state BEFORE applying changes (for revert)
+    const preApplyVideoData = clip.processed.video_data;
+    const preApplyFileSize = clip.processed.file_size;
 
     try {
       // Use the ORIGINAL video data from cache (before any audio modifications)
@@ -345,13 +417,32 @@ export default function ResultsPage() {
         newUrls[audio.selectedClipIndex] = URL.createObjectURL(blob);
         setVideoUrls(newUrls);
 
-        // Reset volumes but keep all caches (separated audio + custom audio)
-        setAudio((prev) => ({
-          ...prev,
-          vocalsVolume: 1.0,
-          musicVolume: 1.0,
-          customVolume: 0.5,
-        }));
+        // Update custom audio cache to mark as applied and store pre-apply state
+        if (hasCustomAudio) {
+          setAudio((prev) => ({
+            ...prev,
+            vocalsVolume: 1.0,
+            musicVolume: 1.0,
+            customVolume: 0.5,
+            customAudioCache: {
+              ...prev.customAudioCache,
+              [audio.selectedClipIndex!]: {
+                ...prev.customAudioCache[audio.selectedClipIndex!],
+                isApplied: true,
+                preApplyVideoData: preApplyVideoData,
+                preApplyFileSize: preApplyFileSize,
+              },
+            },
+          }));
+        } else {
+          // Reset volumes but keep all caches
+          setAudio((prev) => ({
+            ...prev,
+            vocalsVolume: 1.0,
+            musicVolume: 1.0,
+            customVolume: 0.5,
+          }));
+        }
       }
     } catch {
       alert("Failed to process audio. Make sure the backend is running.");
@@ -481,11 +572,12 @@ export default function ResultsPage() {
                     <span>{clip.moment.start_time} - {clip.moment.end_time}</span>
                     <span>{(clip.processed.file_size! / 1024 / 1024).toFixed(1)} MB</span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs mb-3">
-                    {clip.processed.captions_applied ? (
+                  <div className="flex items-center flex-wrap gap-2 text-xs mb-3">
+                    {clip.processed.captions_applied && (
                       <span className="px-2 py-1 bg-green-900/50 text-green-400 rounded">Captions</span>
-                    ) : (
-                      <span className="px-2 py-1 bg-zinc-700 text-zinc-400 rounded">No Captions</span>
+                    )}
+                    {audio.customAudioCache[index]?.isApplied && (
+                      <span className="px-2 py-1 bg-orange-900/50 text-orange-400 rounded">Custom Audio</span>
                     )}
                     {audio.selectedClipIndex === index && (
                       <span className="px-2 py-1 bg-purple-900/50 text-purple-400 rounded">Selected</span>
@@ -658,10 +750,16 @@ export default function ResultsPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                           </svg>
                           <span className="text-white text-sm truncate">{currentCustomAudio.audioName}</span>
+                          {currentCustomAudio.isApplied && (
+                            <span className="px-1.5 py-0.5 bg-green-900/50 text-green-400 text-xs rounded flex-shrink-0">
+                              Applied
+                            </span>
+                          )}
                         </div>
                         <button
-                          onClick={handleRemoveCustomAudio}
+                          onClick={handleRevertCustomAudio}
                           className="p-1 text-zinc-400 hover:text-red-400 transition-colors flex-shrink-0"
+                          title={currentCustomAudio.isApplied ? "Remove from short (keeps audio for re-apply)" : "Remove audio"}
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -688,9 +786,15 @@ export default function ResultsPage() {
                         />
                       </div>
 
-                      {/* Upload different button */}
+                      {/* Upload different button - this replaces the audio entirely */}
                       <button
-                        onClick={() => audioInputRef.current?.click()}
+                        onClick={() => {
+                          // If applied, revert first before allowing new upload
+                          if (currentCustomAudio.isApplied) {
+                            handleRevertCustomAudio();
+                          }
+                          audioInputRef.current?.click();
+                        }}
                         className="w-full px-3 py-2 border border-zinc-600 hover:border-orange-500 text-zinc-400 hover:text-orange-400 rounded-lg transition-colors text-sm"
                       >
                         Upload Different Audio
@@ -721,6 +825,13 @@ export default function ResultsPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                       </svg>
                       Applying Changes...
+                    </>
+                  ) : currentCustomAudio?.isApplied ? (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Re-apply with New Settings
                     </>
                   ) : (
                     <>

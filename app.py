@@ -576,6 +576,37 @@ def get_sample_short():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/debug/sample-clip', methods=['GET'])
+def get_sample_clip():
+    """
+    Get a sample clip video for testing the region selector.
+    Place a sample video at: samples/sample_clip.mp4
+    """
+    import base64
+
+    sample_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'samples', 'sample_clip.mp4')
+
+    if not os.path.exists(sample_path):
+        return jsonify({
+            "error": f"Sample video not found at: {sample_path}",
+            "hint": "Create a 'samples' folder and add a 'sample_clip.mp4' file for testing"
+        }), 404
+
+    try:
+        with open(sample_path, 'rb') as f:
+            video_data = base64.b64encode(f.read()).decode('utf-8')
+
+        file_size = os.path.getsize(sample_path)
+
+        return jsonify({
+            "success": True,
+            "video_data": video_data,
+            "file_size": file_size
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('FLASK_PORT', 5005))
     app.run(host='0.0.0.0', port=port, debug=True)
