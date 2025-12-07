@@ -49,6 +49,7 @@ interface Clip {
 interface CaptionOptions {
   enabled: boolean;
   words_per_group: number;
+  silence_threshold: number; // gap in seconds that forces new caption segment
   word_spacing: number; // spacing between words in pixels
   font_size: number;
   font_name: string;
@@ -125,6 +126,7 @@ export default function RegionSelectorPage() {
   const [captionOptions, setCaptionOptions] = useState<CaptionOptions>({
     enabled: true,
     words_per_group: 3,
+    silence_threshold: 0.5, // 500ms gap forces new caption segment
     word_spacing: 8,
     font_size: 56,
     font_name: "Arial Bold",
@@ -436,15 +438,6 @@ export default function RegionSelectorPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-3">
-            Select Regions for Your Shorts
-          </h1>
-          <p className="text-zinc-400">
-            {clips.length} clip{clips.length !== 1 ? "s" : ""} ready to process. Draw selection boxes around webcam and content areas.
-          </p>
-        </div>
-
         {error && (
           <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-lg text-red-400 text-center">
             {error}
@@ -512,8 +505,8 @@ export default function RegionSelectorPage() {
                     <div
                       key={region.id}
                       className={`absolute cursor-move ${selectedRegion === region.id
-                          ? "ring-2 ring-white ring-offset-2 ring-offset-transparent"
-                          : ""
+                        ? "ring-2 ring-white ring-offset-2 ring-offset-transparent"
+                        : ""
                         }`}
                       style={{
                         left: `${region.x}%`,
@@ -646,8 +639,8 @@ export default function RegionSelectorPage() {
                       key={ratio}
                       onClick={() => setSplitRatio(ratio / 100)}
                       className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${Math.round(splitRatio * 100) === ratio
-                          ? "bg-purple-600 text-white"
-                          : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                        ? "bg-purple-600 text-white"
+                        : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
                         }`}
                     >
                       {ratio}/{100 - ratio}
@@ -796,9 +789,17 @@ export default function RegionSelectorPage() {
 
                     {/* Words */}
                     <div>
-                      <label className="block text-xs text-zinc-500 mb-1">Words: {captionOptions.words_per_group}</label>
+                      <label className="block text-xs text-zinc-500 mb-1">Max Words: {captionOptions.words_per_group}</label>
                       <input type="range" min="1" max="5" value={captionOptions.words_per_group}
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, words_per_group: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-500 h-1" />
+                    </div>
+
+                    {/* Silence Threshold */}
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Pause Break: {(captionOptions.silence_threshold * 1000).toFixed(0)}ms</label>
+                      <input type="range" min="0.2" max="1.5" step="0.1" value={captionOptions.silence_threshold}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, silence_threshold: parseFloat(e.target.value) }))}
                         className="w-full accent-purple-500 h-1" />
                     </div>
 

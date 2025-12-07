@@ -37,6 +37,12 @@ from services.audio_mixer import (
     separate_video_audio,
     process_video_audio
 )
+from services.bestof import (
+    get_transcript_for_highlights,
+    detect_highlight_moments,
+    create_bestof_compilation,
+    process_video_for_bestof
+)
 
 # Environment variable definitions for the config endpoint
 ENV_VAR_CONFIG = {
@@ -308,6 +314,7 @@ def process_vertical_shorts():
         "caption_options": {  # Optional - for animated captions
             "enabled": true,
             "words_per_group": 3,
+            "silence_threshold": 0.5,  # Gap in seconds that forces new caption segment
             "font_size": 56,
             "primary_color": "white",
             "highlight_color": "yellow",
@@ -605,6 +612,186 @@ def get_sample_clip():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# --- Best-Of Compilation Routes ---
+@app.route('/api/bestof/upload', methods=['POST'])
+def bestof_upload_video():
+    """
+    Upload a video file for best-of compilation.
+    Reuses the same upload logic as shorts.
+    """
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+
+    video_file = request.files['video']
+
+    if video_file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    # Generate unique filename
+    original_filename = secure_filename(video_file.filename)
+    unique_filename = f"{uuid.uuid4()}_{original_filename}"
+    video_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+
+    # Save the file
+    video_file.save(video_path)
+
+    return jsonify({
+        "success": True,
+        "video_path": video_path,
+        "original_filename": original_filename
+    })
+
+
+@app.route('/api/bestof/detect-moments', methods=['POST'])
+def bestof_detect_moments():
+    """
+    Detect highlight moments from a YouTube video transcript.
+
+    Request body:
+    {
+        "url": "YouTube video URL",
+        "num_clips": 5,  // Optional, default 5
+        "target_duration_minutes": 10,  // Optional, default 10
+        "custom_prompt": "..."  // Optional custom instructions
+    }
+
+    Returns list of detected highlight moments.
+    """
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({
+            "error": "GEMINI_API_KEY not configured",
+            "missing_env": "GEMINI_API_KEY"
+        }), 400
+
+    data = request.json
+    video_url = data.get('url')
+    num_clips = data.get('num_clips', 5)
+    target_duration = data.get('target_duration_minutes', 10)
+    custom_prompt = data.get('custom_prompt')
+
+    if not video_url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    # Get transcript
+    transcript_result = get_transcript_for_highlights(video_url)
+    if "error" in transcript_result:
+        return jsonify(transcript_result), 400
+
+    # Detect moments
+    moments_result = detect_highlight_moments(
+        transcript_result['full_text'],
+        num_clips=num_clips,
+        target_duration_minutes=target_duration,
+        custom_prompt=custom_prompt
+    )
+
+    if "error" in moments_result:
+        return jsonify(moments_result), 400
+
+    return jsonify({
+        "transcript": transcript_result,
+        "moments": moments_result['moments']
+    })
+
+
+@app.route('/api/bestof/compile', methods=['POST'])
+def bestof_compile():
+    """
+    Create a best-of compilation video from selected moments.
+
+    Request body:
+    {
+        "video_path": "path to uploaded video",
+        "moments": [...],  // Array of moment objects with start_time, end_time, order
+        "use_crossfade": false,  // Optional, default false
+        "crossfade_duration": 0.5  // Optional, default 0.5 seconds
+    }
+
+    Returns the compiled video as base64.
+    """
+    data = request.json
+    video_path = data.get('video_path')
+    moments = data.get('moments', [])
+    use_crossfade = data.get('use_crossfade', False)
+    crossfade_duration = data.get('crossfade_duration', 0.5)
+
+    if not video_path:
+        return jsonify({"error": "No video_path provided"}), 400
+
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video file not found"}), 400
+
+    if not moments:
+        return jsonify({"error": "No moments provided"}), 400
+
+    result = create_bestof_compilation(
+        video_path,
+        moments,
+        use_crossfade=use_crossfade,
+        crossfade_duration=crossfade_duration
+    )
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@app.route('/api/bestof/process', methods=['POST'])
+def bestof_process_full():
+    """
+    Full best-of processing: detect moments and create compilation.
+
+    Request body:
+    {
+        "url": "YouTube video URL",
+        "video_path": "path to uploaded video",
+        "num_clips": 5,
+        "target_duration_minutes": 10,
+        "use_crossfade": false,
+        "crossfade_duration": 0.5,
+        "custom_prompt": "..."
+    }
+
+    Returns the compiled video as base64 with metadata.
+    """
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({
+            "error": "GEMINI_API_KEY not configured",
+            "missing_env": "GEMINI_API_KEY"
+        }), 400
+
+    data = request.json
+    video_url = data.get('url')
+    video_path = data.get('video_path')
+    num_clips = data.get('num_clips', 5)
+    target_duration = data.get('target_duration_minutes', 10)
+    use_crossfade = data.get('use_crossfade', False)
+    crossfade_duration = data.get('crossfade_duration', 0.5)
+    custom_prompt = data.get('custom_prompt')
+
+    if not video_url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": "Video file not found"}), 400
+
+    result = process_video_for_bestof(
+        video_url,
+        video_path=video_path,
+        num_clips=num_clips,
+        target_duration_minutes=target_duration,
+        use_crossfade=use_crossfade,
+        crossfade_duration=crossfade_duration,
+        custom_prompt=custom_prompt
+    )
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
 
 
 if __name__ == '__main__':

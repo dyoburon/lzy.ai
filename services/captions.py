@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import base64
 from openai import OpenAI
+from services.temporal_captions import group_words_by_temporal_proximity
 
 # Configure OpenAI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -116,47 +117,29 @@ def transcribe_with_whisper(audio_path):
         return {"error": f"Whisper transcription failed: {str(e)}"}
 
 
-def group_words_into_captions(words, words_per_group=3):
+def group_words_into_captions(words, words_per_group=3, silence_threshold=0.5):
     """
     Group words into caption segments for display.
 
+    Uses temporal proximity algorithm: words spoken in quick succession appear
+    together, while silence gaps force new segments regardless of word count.
+
     Args:
         words: List of word dicts with 'word', 'start', 'end'
-        words_per_group: Number of words to show at a time (default 3)
+        words_per_group: Maximum words per caption (default 3)
+                        Acts as upper limit, not target - groups can be smaller
+        silence_threshold: Gap in seconds that forces new segment (default 0.5s)
+                          Set to None or very high value to disable silence breaks
 
     Returns:
         List of caption groups with timing info
     """
-    if not words:
-        return []
-
-    captions = []
-
-    for i in range(0, len(words), words_per_group):
-        group = words[i:i + words_per_group]
-
-        # Get timing for the group
-        group_start = group[0]['start']
-        group_end = group[-1]['end']
-
-        # Build the caption text and track word positions
-        caption_words = []
-        for idx, word in enumerate(group):
-            caption_words.append({
-                "word": word['word'].strip(),
-                "start": word['start'],
-                "end": word['end'],
-                "index_in_group": idx
-            })
-
-        captions.append({
-            "text": " ".join([w['word'] for w in caption_words]),
-            "words": caption_words,
-            "start": group_start,
-            "end": group_end
-        })
-
-    return captions
+    # Use the temporal proximity algorithm from the dedicated module
+    return group_words_by_temporal_proximity(
+        words,
+        max_words_per_group=words_per_group,
+        silence_threshold=silence_threshold
+    )
 
 
 def generate_ffmpeg_caption_filter(captions, video_width=1080, video_height=1920,
@@ -333,13 +316,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return ass_content
 
 
-def transcribe_video_for_captions(video_data_base64, words_per_group=3):
+def transcribe_video_for_captions(video_data_base64, words_per_group=3, silence_threshold=0.5):
     """
     Full pipeline: Extract audio, transcribe, and generate caption data.
 
     Args:
         video_data_base64: Base64 encoded video
-        words_per_group: Number of words per caption group
+        words_per_group: Maximum words per caption group (can be fewer due to silence breaks)
+        silence_threshold: Gap in seconds that forces new caption segment (default 0.5s)
+                          Words with gaps exceeding this are split into separate captions
 
     Returns:
         Dict with transcription and caption data
@@ -357,10 +342,11 @@ def transcribe_video_for_captions(video_data_base64, words_per_group=3):
         if "error" in transcription:
             return transcription
 
-        # Step 3: Group words into captions
+        # Step 3: Group words into captions using temporal proximity
         captions = group_words_into_captions(
             transcription.get('words', []),
-            words_per_group=words_per_group
+            words_per_group=words_per_group,
+            silence_threshold=silence_threshold
         )
 
         return {

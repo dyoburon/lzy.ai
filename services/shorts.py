@@ -637,10 +637,12 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
 
     # Step 2: Transcribe the vertical video for captions
     words_per_group = caption_options.get('words_per_group', 3)
+    silence_threshold = caption_options.get('silence_threshold', 0.5)
 
     transcription_result = transcribe_video_for_captions(
         vertical_result['video_data'],
-        words_per_group=words_per_group
+        words_per_group=words_per_group,
+        silence_threshold=silence_threshold
     )
 
     if "error" in transcription_result:
