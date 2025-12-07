@@ -885,14 +885,16 @@ export default function ResultsPage() {
 
         {/* Caption Debug Section */}
         {selectedClip?.processed.caption_debug && (
-          <div className="mt-8 p-6 bg-zinc-800/50 border border-zinc-700 rounded-xl">
-            <div className="flex items-center gap-3 mb-6">
-              <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-              </svg>
-              <h2 className="text-xl font-bold text-white">Caption Debug Info</h2>
-            </div>
-
+          <details className="mt-8 bg-zinc-800/50 border border-zinc-700 rounded-xl">
+            <summary className="p-4 cursor-pointer hover:bg-zinc-700/30 rounded-xl transition-colors">
+              <div className="inline-flex items-center gap-3">
+                <svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                </svg>
+                <span className="text-sm font-medium text-zinc-400">Debug Captioning</span>
+              </div>
+            </summary>
+            <div className="p-6 pt-2">
             {(() => {
               const debug = selectedClip.processed.caption_debug!;
               return (
@@ -1052,7 +1054,8 @@ export default function ResultsPage() {
                 </div>
               );
             })()}
-          </div>
+            </div>
+          </details>
         )}
       </main>
     </div>

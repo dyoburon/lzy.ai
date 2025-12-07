@@ -45,7 +45,9 @@ function MissingEnvMessage({ missingVar }: { missingVar: string }) {
 }
 
 export default function TranscriptPage() {
+  const [inputMode, setInputMode] = useState<"youtube" | "custom">("youtube");
   const [url, setUrl] = useState("");
+  const [customTranscript, setCustomTranscript] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TranscriptResult | null>(null);
   const [error, setError] = useState("");
@@ -76,10 +78,14 @@ export default function TranscriptPage() {
     setResult(null);
 
     try {
+      const body = inputMode === "youtube"
+        ? { url }
+        : { custom_transcript: customTranscript };
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005"}/api/transcript`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
@@ -126,10 +132,10 @@ export default function TranscriptPage() {
       <main className="max-w-4xl mx-auto px-6 py-12">
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-white mb-4">
-            YouTube Transcript & Chapters
+            Transcript & Chapters
           </h1>
           <p className="text-zinc-400">
-            Paste a YouTube URL to extract the transcript and generate AI-powered chapters.
+            Use a YouTube URL or paste your own transcript to generate AI-powered chapters.
           </p>
         </div>
 
@@ -138,25 +144,70 @@ export default function TranscriptPage() {
           <MissingEnvMessage missingVar={missingEnv} />
         ) : (
           <>
-            {/* URL Input Form */}
+            {/* Input Mode Tabs */}
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setInputMode("youtube")}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  inputMode === "youtube"
+                    ? "bg-purple-600 text-white"
+                    : "bg-zinc-800 text-zinc-400 hover:text-white"
+                }`}
+              >
+                YouTube URL
+              </button>
+              <button
+                onClick={() => setInputMode("custom")}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  inputMode === "custom"
+                    ? "bg-purple-600 text-white"
+                    : "bg-zinc-800 text-zinc-400 hover:text-white"
+                }`}
+              >
+                Paste Transcript
+              </button>
+            </div>
+
+            {/* Input Form */}
             <form onSubmit={handleSubmit} className="mb-8">
-              <div className="flex gap-3">
-                <input
-                  type="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="flex-1 px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors"
-                  required
-                />
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
-                >
-                  {loading ? "Processing..." : "Generate"}
-                </button>
-              </div>
+              {inputMode === "youtube" ? (
+                <div className="flex gap-3">
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="flex-1 px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !url}
+                    className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+                  >
+                    {loading ? "Processing..." : "Generate"}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <textarea
+                    value={customTranscript}
+                    onChange={(e) => setCustomTranscript(e.target.value)}
+                    placeholder="Paste your transcript here... (SRT format, timestamped text, or plain text)"
+                    className="w-full h-48 px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors resize-y"
+                    required
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={loading || !customTranscript.trim()}
+                      className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+                    >
+                      {loading ? "Processing..." : "Generate Chapters"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </form>
 
             {/* Error Message */}

@@ -350,7 +350,8 @@ def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_cl
     result = {
         "video_id": transcript_result['video_id'],
         "moments": moments_result['moments'],
-        "transcript_preview": transcript_result['full_text'][:500] + "..."
+        "transcript_preview": transcript_result['full_text'][:500] + "..." if len(transcript_result['full_text']) > 500 else transcript_result['full_text'],
+        "full_transcript": transcript_result['full_text']
     }
 
     # Step 3: If video path provided, clip the moments

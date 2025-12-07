@@ -90,7 +90,22 @@ def get_config():
 # --- Transcript Tool Routes ---
 @app.route('/api/transcript', methods=['POST'])
 def get_transcript():
-    """Fetch transcript and generate chapters for a YouTube video."""
+    """
+    Fetch transcript and generate chapters for a YouTube video,
+    or process a custom transcript.
+
+    Request body (YouTube mode):
+    {
+        "url": "https://youtube.com/watch?v=..."
+    }
+
+    Request body (Custom mode):
+    {
+        "custom_transcript": "..."  // Plain text transcript
+    }
+
+    Returns transcript with AI-generated chapters.
+    """
     if not os.environ.get("GEMINI_API_KEY"):
         return jsonify({
             "error": "GEMINI_API_KEY not configured",
@@ -99,14 +114,30 @@ def get_transcript():
 
     data = request.json
     video_url = data.get('url')
+    custom_transcript = data.get('custom_transcript')
 
+    # Custom transcript mode
+    if custom_transcript:
+        # Generate chapters using Gemini directly from the text
+        from services.transcript import generate_chapters
+        chapters = generate_chapters(custom_transcript)
+
+        return jsonify({
+            "transcript": [],
+            "chapters": chapters,
+            "video_id": None,
+            "source": "custom"
+        })
+
+    # YouTube mode
     if not video_url:
-        return jsonify({"error": "No URL provided"}), 400
+        return jsonify({"error": "No URL or custom transcript provided"}), 400
 
     result = process_transcript(video_url)
     if "error" in result:
         return jsonify(result), 400
 
+    result['source'] = 'youtube'
     return jsonify(result)
 
 # --- YouTube Live Check Routes ---
@@ -225,13 +256,20 @@ def upload_video():
 @app.route('/api/shorts/detect-moments', methods=['POST'])
 def detect_moments():
     """
-    Detect interesting moments from a YouTube video transcript.
+    Detect interesting moments from a YouTube video transcript or custom transcript.
 
-    Request body:
+    Request body (YouTube mode):
     {
         "url": "https://youtube.com/watch?v=...",
         "num_clips": 3,  // Optional, 1-10, default 3
         "custom_prompt": "Focus on funny moments..."  // Optional custom instructions
+    }
+
+    Request body (Custom transcript mode):
+    {
+        "custom_transcript": "...",  // Plain text transcript
+        "num_clips": 3,
+        "custom_prompt": "..."
     }
 
     Returns detected moments with timestamps and viral scores.
@@ -244,6 +282,7 @@ def detect_moments():
 
     data = request.json
     video_url = data.get('url')
+    custom_transcript = data.get('custom_transcript')
     num_clips = data.get('num_clips', 3)
     custom_prompt = data.get('custom_prompt')
 
@@ -254,13 +293,35 @@ def detect_moments():
     except (ValueError, TypeError):
         num_clips = 3
 
+    # Custom transcript mode
+    if custom_transcript:
+        # Use the transcript directly for moment detection
+        moments_result = detect_interesting_moments(
+            custom_transcript,
+            num_clips=num_clips,
+            custom_prompt=custom_prompt
+        )
+
+        if "error" in moments_result:
+            return jsonify(moments_result), 400
+
+        return jsonify({
+            "video_id": None,
+            "moments": moments_result['moments'],
+            "transcript_preview": custom_transcript[:500] + "..." if len(custom_transcript) > 500 else custom_transcript,
+            "full_transcript": custom_transcript,
+            "source": "custom"
+        })
+
+    # YouTube mode
     if not video_url:
-        return jsonify({"error": "No URL provided"}), 400
+        return jsonify({"error": "No URL or custom transcript provided"}), 400
 
     result = process_video_for_shorts(video_url, num_clips=num_clips, custom_prompt=custom_prompt)
     if "error" in result:
         return jsonify(result), 400
 
+    result['source'] = 'youtube'
     return jsonify(result)
 
 
@@ -647,15 +708,24 @@ def bestof_upload_video():
 @app.route('/api/bestof/detect-moments', methods=['POST'])
 def bestof_detect_moments():
     """
-    Detect highlight moments from a YouTube video transcript.
+    Detect highlight moments from a YouTube video transcript or custom transcript.
 
-    Request body:
+    Request body (YouTube mode):
     {
         "url": "YouTube video URL",
         "num_clips": 5,  // Optional, default 5
         "target_duration_minutes": 10,  // Optional, default 10
         "avg_clip_length_seconds": 60,  // Optional, default 60
         "custom_prompt": "..."  // Optional custom instructions
+    }
+
+    Request body (Custom transcript mode):
+    {
+        "custom_transcript": "...",  // Plain text transcript
+        "num_clips": 5,
+        "target_duration_minutes": 10,
+        "avg_clip_length_seconds": 60,
+        "custom_prompt": "..."
     }
 
     Returns list of detected highlight moments.
@@ -668,13 +738,38 @@ def bestof_detect_moments():
 
     data = request.json
     video_url = data.get('url')
+    custom_transcript = data.get('custom_transcript')
     num_clips = data.get('num_clips', 5)
     target_duration = data.get('target_duration_minutes', 10)
     avg_clip_length = data.get('avg_clip_length_seconds', 60)
     custom_prompt = data.get('custom_prompt')
 
+    # Custom transcript mode
+    if custom_transcript:
+        # Detect moments directly from custom transcript
+        moments_result = detect_highlight_moments(
+            custom_transcript,
+            num_clips=num_clips,
+            target_duration_minutes=target_duration,
+            avg_clip_length_seconds=avg_clip_length,
+            custom_prompt=custom_prompt
+        )
+
+        if "error" in moments_result:
+            return jsonify(moments_result), 400
+
+        return jsonify({
+            "transcript": {
+                "full_text": custom_transcript,
+                "video_id": None,
+                "source": "custom"
+            },
+            "moments": moments_result['moments']
+        })
+
+    # YouTube mode
     if not video_url:
-        return jsonify({"error": "No URL provided"}), 400
+        return jsonify({"error": "No URL or custom transcript provided"}), 400
 
     # Get transcript
     transcript_result = get_transcript_for_highlights(video_url)
@@ -693,6 +788,7 @@ def bestof_detect_moments():
     if "error" in moments_result:
         return jsonify(moments_result), 400
 
+    transcript_result['source'] = 'youtube'
     return jsonify({
         "transcript": transcript_result,
         "moments": moments_result['moments']
@@ -795,6 +891,83 @@ def bestof_process_full():
         return jsonify(result), 400
 
     return jsonify(result)
+
+
+# --- Captions Route (shared by shorts and best-of) ---
+@app.route('/api/captions/add', methods=['POST'])
+def add_captions_to_video():
+    """
+    Add animated captions to a video.
+
+    Request body:
+    {
+        "video_data": "base64 encoded video",
+        "caption_options": {
+            "enabled": true,
+            "words_per_group": 3,
+            "silence_threshold": 0.5,
+            "font_size": 56,
+            "font_name": "Arial Bold",
+            "primary_color": "white",
+            "highlight_color": "yellow",
+            "highlight_scale": 1.3,
+            "position_y": 85
+        }
+    }
+
+    Returns the video with captions as base64.
+    """
+    if not os.environ.get("OPENAI_API_KEY"):
+        return jsonify({
+            "error": "OPENAI_API_KEY not configured. Captions require OpenAI Whisper API.",
+            "missing_env": "OPENAI_API_KEY"
+        }), 400
+
+    data = request.json
+    video_data = data.get('video_data')
+    caption_options = data.get('caption_options', {})
+
+    if not video_data:
+        return jsonify({"error": "No video_data provided"}), 400
+
+    # Import caption functions
+    from services.captions import transcribe_video_for_captions, create_caption_overlay_video
+
+    # Step 1: Transcribe the video
+    words_per_group = caption_options.get('words_per_group', 3)
+    silence_threshold = caption_options.get('silence_threshold', 0.5)
+
+    transcription_result = transcribe_video_for_captions(
+        video_data,
+        words_per_group=words_per_group,
+        silence_threshold=silence_threshold
+    )
+
+    if "error" in transcription_result:
+        return jsonify(transcription_result), 400
+
+    captions = transcription_result.get('captions', [])
+
+    if not captions:
+        # No speech detected, return original video
+        return jsonify({
+            "success": True,
+            "video_data": video_data,
+            "captions_applied": False,
+            "message": "No speech detected in video"
+        })
+
+    # Step 2: Add caption overlay
+    result = create_caption_overlay_video(video_data, captions, caption_options)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify({
+        **result,
+        "captions_applied": True,
+        "num_caption_groups": len(captions)
+    })
 
 
 if __name__ == '__main__':

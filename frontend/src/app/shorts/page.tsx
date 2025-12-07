@@ -67,7 +67,9 @@ function MissingEnvMessage({ missingVar }: { missingVar: string }) {
 
 export default function ShortsPage() {
   const router = useRouter();
+  const [transcriptMode, setTranscriptMode] = useState<"youtube" | "custom">("youtube");
   const [url, setUrl] = useState("");
+  const [customTranscript, setCustomTranscript] = useState("");
   const [numClips, setNumClips] = useState(3);
   const [customPrompt, setCustomPrompt] = useState("");
   const [showCustomPrompt, setShowCustomPrompt] = useState(false);
@@ -195,14 +197,14 @@ export default function ShortsPage() {
 
     try {
       // Step 1: Detect moments
+      const detectBody = transcriptMode === "youtube"
+        ? { url, num_clips: numClips, custom_prompt: customPrompt || undefined }
+        : { custom_transcript: customTranscript, num_clips: numClips, custom_prompt: customPrompt || undefined };
+
       const detectResponse = await fetch(`${API_URL}/api/shorts/detect-moments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          num_clips: numClips,
-          custom_prompt: customPrompt || undefined,
-        }),
+        body: JSON.stringify(detectBody),
       });
 
       const detectData = await detectResponse.json();
@@ -287,7 +289,9 @@ export default function ShortsPage() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const canSubmit = url && uploadedVideoPath && !uploading;
+  const canSubmit = uploadedVideoPath && !uploading && (
+    transcriptMode === "youtube" ? url : customTranscript.trim()
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900">
@@ -480,22 +484,64 @@ export default function ShortsPage() {
                 </div>
               </div>
 
-              {/* YouTube URL Input */}
+              {/* Transcript Source */}
               <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-                <label className="block text-sm font-medium text-white mb-2">
-                  YouTube URL
+                <label className="block text-sm font-medium text-white mb-3">
+                  Transcript Source
                 </label>
-                <input
-                  type="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors"
-                  required
-                />
-                <p className="mt-2 text-sm text-zinc-500">
-                  Used to fetch the transcript for AI analysis
-                </p>
+
+                {/* Mode Toggle */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setTranscriptMode("youtube")}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      transcriptMode === "youtube"
+                        ? "bg-purple-600 text-white"
+                        : "bg-zinc-700 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    YouTube URL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTranscriptMode("custom")}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      transcriptMode === "custom"
+                        ? "bg-purple-600 text-white"
+                        : "bg-zinc-700 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    Paste Transcript
+                  </button>
+                </div>
+
+                {transcriptMode === "youtube" ? (
+                  <>
+                    <input
+                      type="url"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors"
+                    />
+                    <p className="mt-2 text-sm text-zinc-500">
+                      Used to fetch the transcript for AI analysis
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <textarea
+                      value={customTranscript}
+                      onChange={(e) => setCustomTranscript(e.target.value)}
+                      placeholder="Paste your transcript here...&#10;&#10;Can be plain text, timestamped text, or SRT format."
+                      className="w-full h-40 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors resize-y"
+                    />
+                    <p className="mt-2 text-sm text-zinc-500">
+                      Paste your own transcript for AI to find interesting moments
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Number of Clips */}
@@ -628,7 +674,7 @@ export default function ShortsPage() {
                   </span>
                 </button>
                 {transcriptOpen && (
-                  <div className="p-4 border-t border-zinc-700 max-h-96 overflow-y-auto">
+                  <div className="p-4 border-t border-zinc-700 max-h-[70vh] overflow-y-auto">
                     {detectResult.full_transcript || detectResult.transcript_preview ? (
                       <pre className="text-zinc-300 text-sm whitespace-pre-wrap font-mono leading-relaxed">
                         {detectResult.full_transcript || detectResult.transcript_preview}
