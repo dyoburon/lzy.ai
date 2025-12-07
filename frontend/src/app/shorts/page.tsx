@@ -69,6 +69,8 @@ export default function ShortsPage() {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [numClips, setNumClips] = useState(3);
+  const [customPrompt, setCustomPrompt] = useState("");
+  const [showCustomPrompt, setShowCustomPrompt] = useState(false);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploadedVideoPath, setUploadedVideoPath] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -196,7 +198,11 @@ export default function ShortsPage() {
       const detectResponse = await fetch(`${API_URL}/api/shorts/detect-moments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, num_clips: numClips }),
+        body: JSON.stringify({
+          url,
+          num_clips: numClips,
+          custom_prompt: customPrompt || undefined,
+        }),
       });
 
       const detectData = await detectResponse.json();
@@ -415,6 +421,74 @@ export default function ShortsPage() {
                   max={10}
                   className="w-24 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500 transition-colors"
                 />
+              </div>
+
+              {/* Custom Instructions (Optional) */}
+              <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomPrompt(!showCustomPrompt)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <div>
+                    <span className="text-sm font-medium text-white">Custom Instructions</span>
+                    <span className="ml-2 text-xs px-2 py-0.5 bg-zinc-700 text-zinc-400 rounded">Optional</span>
+                  </div>
+                  <svg
+                    className={`w-5 h-5 text-zinc-400 transition-transform ${showCustomPrompt ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {showCustomPrompt && (
+                  <div className="mt-4 space-y-3">
+                    <p className="text-sm text-zinc-400">
+                      Guide the AI to find specific moments. You can describe what you&apos;re looking for or specify exact timestamps.
+                    </p>
+                    <textarea
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="Examples:&#10;• Find the moment where I talked about the new feature around 15 minutes in&#10;• Only clip the part from 5:30 to 6:00 where I showed the demo&#10;• Look for funny moments, skip the intro&#10;• Find when I said 'this is the best part' - make it 20 seconds max"
+                      rows={4}
+                      className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500 transition-colors resize-none text-sm"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-xs text-zinc-500">Quick tips:</span>
+                      <button
+                        type="button"
+                        onClick={() => setCustomPrompt(prev => prev + (prev ? '\n' : '') + 'Only find moments between [START] and [END]')}
+                        className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
+                      >
+                        + Time range
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomPrompt(prev => prev + (prev ? '\n' : '') + 'Keep clips under 30 seconds')}
+                        className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
+                      >
+                        + Short clips
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomPrompt(prev => prev + (prev ? '\n' : '') + 'Skip the intro and outro')}
+                        className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
+                      >
+                        + Skip intro/outro
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomPrompt(prev => prev + (prev ? '\n' : '') + 'Focus on funny/entertaining moments')}
+                        className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
+                      >
+                        + Funny moments
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Submit Button */}

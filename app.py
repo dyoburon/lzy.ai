@@ -219,7 +219,8 @@ def detect_moments():
     Request body:
     {
         "url": "https://youtube.com/watch?v=...",
-        "num_clips": 3  // Optional, 1-10, default 3
+        "num_clips": 3,  // Optional, 1-10, default 3
+        "custom_prompt": "Focus on funny moments..."  // Optional custom instructions
     }
 
     Returns detected moments with timestamps and viral scores.
@@ -233,6 +234,7 @@ def detect_moments():
     data = request.json
     video_url = data.get('url')
     num_clips = data.get('num_clips', 3)
+    custom_prompt = data.get('custom_prompt')
 
     # Validate num_clips
     try:
@@ -244,7 +246,7 @@ def detect_moments():
     if not video_url:
         return jsonify({"error": "No URL provided"}), 400
 
-    result = process_video_for_shorts(video_url, num_clips=num_clips)
+    result = process_video_for_shorts(video_url, num_clips=num_clips, custom_prompt=custom_prompt)
     if "error" in result:
         return jsonify(result), 400
 

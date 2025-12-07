@@ -69,7 +69,7 @@ def get_transcript_for_moments(video_url):
         return {"error": str(e)}
 
 
-def detect_interesting_moments(transcript_text, num_clips=3, max_duration_seconds=120):
+def detect_interesting_moments(transcript_text, num_clips=3, max_duration_seconds=120, custom_prompt=None):
     """
     Uses Gemini to detect the most interesting moments in a video transcript.
 
@@ -77,6 +77,7 @@ def detect_interesting_moments(transcript_text, num_clips=3, max_duration_second
         transcript_text: The full transcript with timestamps
         num_clips: Number of clips to identify (1-10, default 3)
         max_duration_seconds: Maximum duration for each clip (default 120 = 2 minutes)
+        custom_prompt: Optional custom instructions to guide moment selection
 
     Returns:
         List of moments with start/end timestamps and descriptions
@@ -90,6 +91,16 @@ def detect_interesting_moments(transcript_text, num_clips=3, max_duration_second
     try:
         model = genai.GenerativeModel('gemini-2.5-pro')
 
+        # Build custom instructions section if provided
+        custom_instructions = ""
+        if custom_prompt and custom_prompt.strip():
+            custom_instructions = f"""
+ADDITIONAL INSTRUCTIONS FROM USER:
+{custom_prompt.strip()}
+
+Please prioritize these instructions when selecting moments.
+"""
+
         prompt = f"""
 You are an expert content strategist specializing in viral short-form content. Analyze this video transcript and identify the MOST INTERESTING MOMENTS that would make great standalone clips.
 
@@ -97,7 +108,7 @@ Here is the transcript:
 {transcript_text}
 
 TASK: Identify exactly {num_clips} of the most engaging, interesting, or viral-worthy moments from this video.
-
+{custom_instructions}
 CRITERIA for selecting moments:
 1. **Emotional peaks** - Funny moments, surprising revelations, intense reactions
 2. **Valuable insights** - Key tips, important information, "aha" moments
@@ -282,7 +293,7 @@ def clip_all_moments(video_path, moments):
     return {"clips": results}
 
 
-def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_clips=3):
+def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_clips=3, custom_prompt=None):
     """
     Main function to process a video for shorts.
 
@@ -291,6 +302,7 @@ def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_cl
         video_path: Path to the downloaded video file (optional, for clipping)
         output_dir: Directory to save clips (optional)
         num_clips: Number of clips to identify (1-10, default 3)
+        custom_prompt: Optional custom instructions to guide moment selection
 
     Returns:
         Dict with transcript, detected moments, and optionally clipped videos
@@ -301,7 +313,7 @@ def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_cl
         return transcript_result
 
     # Step 2: Detect interesting moments using Gemini
-    moments_result = detect_interesting_moments(transcript_result['full_text'], num_clips=num_clips)
+    moments_result = detect_interesting_moments(transcript_result['full_text'], num_clips=num_clips, custom_prompt=custom_prompt)
     if "error" in moments_result:
         return {
             "transcript": transcript_result,
