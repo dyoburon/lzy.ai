@@ -623,6 +623,12 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
     if caption_options is None:
         caption_options = {}
 
+    # Debug: Log caption options received
+    print(f"[process_clip_to_vertical_with_captions] caption_options received: {caption_options}")
+    print(f"[process_clip_to_vertical_with_captions] background_enabled: {caption_options.get('background_enabled')}")
+    print(f"[process_clip_to_vertical_with_captions] background_color: {caption_options.get('background_color')}")
+    print(f"[process_clip_to_vertical_with_captions] background_opacity: {caption_options.get('background_opacity')}")
+
     # Check if captions are enabled
     captions_enabled = caption_options.get('enabled', True)
 

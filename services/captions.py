@@ -346,6 +346,14 @@ def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
     bg_alpha = hex(int(255 * (1 - background_opacity / 100)))[2:].upper().zfill(2)
     back_color = f"&H{bg_alpha}{background_color[2:]}" if background_enabled else f"&H80{shadow_color[2:]}"
 
+    # Debug: Log ASS generation values
+    print(f"[generate_ass_subtitles] background_enabled: {background_enabled}")
+    print(f"[generate_ass_subtitles] background_color (after conversion): {background_color}")
+    print(f"[generate_ass_subtitles] background_opacity: {background_opacity}")
+    print(f"[generate_ass_subtitles] bg_alpha: {bg_alpha}")
+    print(f"[generate_ass_subtitles] back_color: {back_color}")
+    print(f"[generate_ass_subtitles] border_style: {border_style}")
+
     # ASS header
     ass_content = f"""[Script Info]
 Title: Auto-generated Captions
@@ -362,6 +370,9 @@ Style: Highlight,{font_name},{int(font_size * highlight_scale)},{highlight_color
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+
+    # Debug: Print the style line to see what's being generated
+    print(f"[generate_ass_subtitles] Generated Style line: Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},{back_color},1,0,0,0,100,100,{word_spacing},0,{border_style},{actual_outline},{actual_shadow},{alignment},50,50,{margin_v},1")
 
     def format_time(seconds):
         """Convert seconds to ASS time format (H:MM:SS.cc)"""
@@ -502,6 +513,12 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
     if caption_options is None:
         caption_options = {}
 
+    # Debug: Log caption options in create_caption_overlay_video
+    print(f"[create_caption_overlay_video] caption_options received: {caption_options}")
+    print(f"[create_caption_overlay_video] background_enabled: {caption_options.get('background_enabled')}")
+    print(f"[create_caption_overlay_video] background_color: {caption_options.get('background_color')}")
+    print(f"[create_caption_overlay_video] background_opacity: {caption_options.get('background_opacity')}")
+
     # Extract all options with defaults
     font_size = caption_options.get('font_size', 56)
     font_name = caption_options.get('font_name', 'Arial Black')
@@ -556,6 +573,12 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
         ass_file.write(ass_content)
         ass_file.close()
         ass_path = ass_file.name
+
+        # Debug: Save a copy of the ASS file for inspection
+        debug_ass_path = '/tmp/debug_captions.ass'
+        with open(debug_ass_path, 'w') as f:
+            f.write(ass_content)
+        print(f"[create_caption_overlay_video] ASS file saved to {debug_ass_path} for inspection")
 
         # Create temp output file
         output_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)

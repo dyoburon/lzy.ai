@@ -392,6 +392,13 @@ def process_vertical_shorts():
     layout = data.get('layout')
     caption_options = data.get('caption_options')
 
+    # Debug: Log caption_options received from frontend
+    print(f"[process-vertical] caption_options from frontend: {caption_options}")
+    if caption_options:
+        print(f"[process-vertical] background_enabled: {caption_options.get('background_enabled')}")
+        print(f"[process-vertical] background_color: {caption_options.get('background_color')}")
+        print(f"[process-vertical] background_opacity: {caption_options.get('background_opacity')}")
+
     if not clips:
         return jsonify({"error": "No clips provided"}), 400
 
