@@ -520,7 +520,6 @@ export default function RegionSelectorPage() {
                             green: "#22c55e", orange: "#f97316", pink: "#ec4899"
                           };
                           const fontMap: Record<string, string> = {
-                            // System fonts
                             "Arial": "Arial, sans-serif",
                             "Arial Black": "'Arial Black', sans-serif",
                             "Verdana": "Verdana, sans-serif",
@@ -531,30 +530,13 @@ export default function RegionSelectorPage() {
                             "Courier New": "'Courier New', monospace",
                             "Impact": "Impact, sans-serif",
                             "Comic Sans MS": "'Comic Sans MS', cursive",
-                            // Google Fonts (Open License)
-                            "Roboto": "Roboto, sans-serif",
-                            "Roboto Black": "'Roboto Black', Roboto, sans-serif",
-                            "Open Sans": "'Open Sans', sans-serif",
-                            "Lato": "Lato, sans-serif",
-                            "Montserrat": "Montserrat, sans-serif",
-                            "Oswald": "Oswald, sans-serif",
-                            "Poppins": "Poppins, sans-serif",
-                            "Raleway": "Raleway, sans-serif",
-                            "Inter": "Inter, sans-serif",
-                            "Nunito": "Nunito, sans-serif",
-                            "Bebas Neue": "'Bebas Neue', sans-serif",
-                            "Anton": "Anton, sans-serif",
-                            "Bangers": "Bangers, cursive",
-                            "Permanent Marker": "'Permanent Marker', cursive",
-                            "Lobster": "Lobster, cursive",
-                            "Pacifico": "Pacifico, cursive",
-                            "Dancing Script": "'Dancing Script', cursive",
-                            "Caveat": "Caveat, cursive",
-                            "Merriweather": "Merriweather, serif",
-                            "Playfair Display": "'Playfair Display', serif",
-                            "Lora": "Lora, serif",
-                            "Source Code Pro": "'Source Code Pro', monospace",
-                            "Fira Code": "'Fira Code', monospace",
+                            "Helvetica": "Helvetica, Arial, sans-serif",
+                            "Palatino": "'Palatino Linotype', Palatino, serif",
+                            "Lucida Console": "'Lucida Console', Monaco, monospace",
+                            "Lucida Sans": "'Lucida Sans Unicode', 'Lucida Grande', sans-serif",
+                            "Garamond": "Garamond, serif",
+                            "Bookman": "'Bookman Old Style', serif",
+                            "Avant Garde": "'Century Gothic', 'Avant Garde', sans-serif",
                           };
                           const startIdx = Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group;
                           return previewWords.slice(startIdx, startIdx + captionOptions.words_per_group).map((word, idx) => {
@@ -775,50 +757,32 @@ export default function RegionSelectorPage() {
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_name: e.target.value }))}
                         className="w-full px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-white text-xs focus:outline-none"
                       >
-                        <optgroup label="System Fonts">
+                        <optgroup label="Sans-Serif">
                           <option value="Arial">Arial</option>
                           <option value="Arial Black">Arial Black</option>
+                          <option value="Helvetica">Helvetica</option>
                           <option value="Verdana">Verdana</option>
                           <option value="Tahoma">Tahoma</option>
                           <option value="Trebuchet MS">Trebuchet MS</option>
+                          <option value="Lucida Sans">Lucida Sans</option>
+                          <option value="Avant Garde">Avant Garde</option>
+                        </optgroup>
+                        <optgroup label="Serif">
                           <option value="Georgia">Georgia</option>
                           <option value="Times New Roman">Times New Roman</option>
-                          <option value="Courier New">Courier New</option>
+                          <option value="Palatino">Palatino</option>
+                          <option value="Garamond">Garamond</option>
+                          <option value="Bookman">Bookman</option>
+                        </optgroup>
+                        <optgroup label="Display">
                           <option value="Impact">Impact</option>
+                        </optgroup>
+                        <optgroup label="Monospace">
+                          <option value="Courier New">Courier New</option>
+                          <option value="Lucida Console">Lucida Console</option>
+                        </optgroup>
+                        <optgroup label="Other">
                           <option value="Comic Sans MS">Comic Sans MS</option>
-                        </optgroup>
-                        <optgroup label="Google Fonts - Sans">
-                          <option value="Roboto">Roboto</option>
-                          <option value="Roboto Black">Roboto Black</option>
-                          <option value="Open Sans">Open Sans</option>
-                          <option value="Lato">Lato</option>
-                          <option value="Montserrat">Montserrat</option>
-                          <option value="Poppins">Poppins</option>
-                          <option value="Raleway">Raleway</option>
-                          <option value="Inter">Inter</option>
-                          <option value="Nunito">Nunito</option>
-                        </optgroup>
-                        <optgroup label="Google Fonts - Display">
-                          <option value="Oswald">Oswald</option>
-                          <option value="Bebas Neue">Bebas Neue</option>
-                          <option value="Anton">Anton</option>
-                          <option value="Bangers">Bangers</option>
-                          <option value="Permanent Marker">Permanent Marker</option>
-                          <option value="Lobster">Lobster</option>
-                        </optgroup>
-                        <optgroup label="Google Fonts - Script">
-                          <option value="Pacifico">Pacifico</option>
-                          <option value="Dancing Script">Dancing Script</option>
-                          <option value="Caveat">Caveat</option>
-                        </optgroup>
-                        <optgroup label="Google Fonts - Serif">
-                          <option value="Merriweather">Merriweather</option>
-                          <option value="Playfair Display">Playfair Display</option>
-                          <option value="Lora">Lora</option>
-                        </optgroup>
-                        <optgroup label="Google Fonts - Mono">
-                          <option value="Source Code Pro">Source Code Pro</option>
-                          <option value="Fira Code">Fira Code</option>
                         </optgroup>
                       </select>
                     </div>
