@@ -31,6 +31,7 @@ from services.shorts import (
     process_clips_to_vertical_with_captions
 )
 from services.idea_generator import process_video_for_ideas
+from services.channel_improver import analyze_video_for_improvements
 
 # Environment variable definitions for the config endpoint
 ENV_VAR_CONFIG = {
@@ -419,6 +420,51 @@ def process_single_vertical():
         layout = {"topRegionId": "content", "splitRatio": 0.6}
 
     result = process_clip_to_vertical(video_data, regions, layout)
+    return jsonify(result)
+
+
+# --- Channel Improver Routes ---
+@app.route('/api/channel/analyze', methods=['POST'])
+def analyze_channel():
+    """
+    Analyze a video transcript and provide improvement suggestions
+    based on the creator's channel context and goals.
+
+    Request body:
+    {
+        "url": "https://youtube.com/watch?v=...",
+        "channel_context": {
+            "goal": "marketing my products",  // Primary goal
+            "channel_description": "I make coding tutorials",
+            "target_audience": "beginner developers",
+            "recent_titles": ["Title 1", "Title 2"],  // Optional
+            "improvement_focus": ["content", "branding"]  // Optional
+        }
+    }
+
+    Returns categorized improvement suggestions.
+    """
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({
+            "error": "GEMINI_API_KEY not configured",
+            "missing_env": "GEMINI_API_KEY"
+        }), 400
+
+    data = request.json
+    video_url = data.get('url')
+    channel_context = data.get('channel_context', {})
+
+    if not video_url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    if not channel_context.get('goal'):
+        return jsonify({"error": "Channel goal is required"}), 400
+
+    result = analyze_video_for_improvements(video_url, channel_context)
+
+    if "error" in result and "missing_env" not in result:
+        return jsonify(result), 400
+
     return jsonify(result)
 
 
