@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { getPendingClips, clearPendingClips } from "@/lib/clipStore";
+import { getPendingClips, setProcessedClips as storeProcessedClips } from "@/lib/clipStore";
 
 interface Region {
   id: string;
@@ -45,21 +46,6 @@ interface Clip {
   };
 }
 
-interface ProcessedClip {
-  moment: Clip["moment"];
-  original_filename: string;
-  processed: {
-    success?: boolean;
-    video_data?: string;
-    file_size?: number;
-    dimensions?: { width: number; height: number };
-    error?: string;
-    captions_applied?: boolean;
-    transcription?: string;
-    caption_error?: string;
-  };
-}
-
 interface CaptionOptions {
   enabled: boolean;
   words_per_group: number;
@@ -84,6 +70,8 @@ interface CaptionOptions {
 }
 
 export default function RegionSelectorPage() {
+  const router = useRouter();
+
   // Clips passed from shorts page
   const [clips, setClips] = useState<Clip[]>([]);
   const [currentClipIndex, setCurrentClipIndex] = useState(0);
@@ -131,8 +119,6 @@ export default function RegionSelectorPage() {
 
   // Processing state
   const [processing, setProcessing] = useState(false);
-  const [processedClips, setProcessedClips] = useState<ProcessedClip[]>([]);
-  const [processedVideoUrls, setProcessedVideoUrls] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   // Caption options state
@@ -350,7 +336,6 @@ export default function RegionSelectorPage() {
 
     setProcessing(true);
     setError("");
-    setProcessedClips([]);
 
     try {
       const response = await fetch(
@@ -381,18 +366,9 @@ export default function RegionSelectorPage() {
       if (data.error) {
         setError(data.error);
       } else if (data.processed_clips) {
-        setProcessedClips(data.processed_clips);
-        // Create blob URLs once to avoid re-creating on every render
-        const urls = data.processed_clips.map((clip: ProcessedClip) => {
-          if (clip.processed.success && clip.processed.video_data) {
-            const blob = base64ToBlob(clip.processed.video_data, "video/mp4");
-            return URL.createObjectURL(blob);
-          }
-          return "";
-        });
-        setProcessedVideoUrls(urls);
-        // Clear clips from memory after processing
-        clearPendingClips();
+        // Store processed clips in memory and navigate to results page
+        storeProcessedClips(data.processed_clips);
+        router.push("/region-selector/results");
       }
     } catch (err) {
       setError("Failed to connect to server. Make sure the backend is running.");
@@ -401,39 +377,8 @@ export default function RegionSelectorPage() {
     }
   };
 
-  // Cleanup processed video URLs on unmount
-  useEffect(() => {
-    return () => {
-      processedVideoUrls.forEach((url) => {
-        if (url) URL.revokeObjectURL(url);
-      });
-    };
-  }, [processedVideoUrls]);
-
-  const downloadClip = (clip: ProcessedClip) => {
-    if (!clip.processed.video_data) return;
-
-    const blob = base64ToBlob(clip.processed.video_data, "video/mp4");
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `vertical_${clip.original_filename}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadAllClips = () => {
-    processedClips.forEach((clip, index) => {
-      if (clip.processed.success) {
-        setTimeout(() => downloadClip(clip), index * 500);
-      }
-    });
-  };
-
   // If no clips, show empty state
-  if (clips.length === 0 && processedClips.length === 0) {
+  if (clips.length === 0) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900">
         <header className="border-b border-zinc-700/50">
@@ -463,110 +408,6 @@ export default function RegionSelectorPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </Link>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // If clips are processed, show results
-  if (processedClips.length > 0) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900">
-        <header className="border-b border-zinc-700/50">
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link href="/" className="text-2xl font-bold text-white">
-                lzy<span className="text-purple-500">.ai</span>
-              </Link>
-              <span className="text-zinc-600">/</span>
-              <span className="text-zinc-400">Processed Shorts</span>
-            </div>
-            <Link
-              href="/shorts"
-              className="text-sm text-zinc-400 hover:text-white transition-colors"
-            >
-              Create More Shorts
-            </Link>
-          </div>
-        </header>
-
-        <main className="max-w-6xl mx-auto px-6 py-8">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-white mb-3">Your Vertical Shorts</h1>
-            <p className="text-zinc-400">
-              {processedClips.filter((c) => c.processed.success).length} of {processedClips.length} clips processed successfully
-            </p>
-          </div>
-
-          {/* Download All Button */}
-          <div className="mb-6 flex justify-center">
-            <button
-              onClick={downloadAllClips}
-              className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download All
-            </button>
-          </div>
-
-          {/* Processed Clips Grid */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {processedClips.map((clip, index) => (
-              <div
-                key={index}
-                className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg"
-              >
-                {clip.processed.success && processedVideoUrls[index] ? (
-                  <>
-                    <div className="aspect-[9/16] bg-black rounded-lg overflow-hidden mb-4">
-                      <video
-                        src={processedVideoUrls[index]}
-                        className="w-full h-full object-contain"
-                        controls
-                      />
-                    </div>
-                    <h3 className="text-white font-medium mb-2 truncate">{clip.moment.title}</h3>
-                    <div className="flex items-center justify-between text-sm text-zinc-400 mb-2">
-                      <span>{clip.moment.start_time} - {clip.moment.end_time}</span>
-                      <span>{(clip.processed.file_size! / 1024 / 1024).toFixed(1)} MB</span>
-                    </div>
-                    {/* Caption status */}
-                    <div className="flex items-center gap-2 text-xs mb-3">
-                      {clip.processed.captions_applied ? (
-                        <span className="px-2 py-1 bg-green-900/50 text-green-400 rounded">
-                          Captions Added
-                        </span>
-                      ) : clip.processed.caption_error ? (
-                        <span className="px-2 py-1 bg-yellow-900/50 text-yellow-400 rounded" title={clip.processed.caption_error}>
-                          No Captions (API Error)
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 bg-zinc-700 text-zinc-400 rounded">
-                          No Captions
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => downloadClip(clip)}
-                      className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download
-                    </button>
-                  </>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-red-400 mb-2">Processing failed</p>
-                    <p className="text-zinc-500 text-sm">{clip.processed.error || "Unknown error"}</p>
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
         </main>
       </div>

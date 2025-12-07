@@ -25,9 +25,31 @@ interface Clip {
   };
 }
 
-// Module-level variable - persists across navigation, cleared on refresh
-let pendingClips: Clip[] | null = null;
+interface ProcessedClip {
+  moment: {
+    start_time: string;
+    end_time: string;
+    title: string;
+    reason: string;
+    viral_score: number;
+  };
+  original_filename: string;
+  processed: {
+    success: boolean;
+    video_data?: string;
+    file_size?: number;
+    dimensions?: { width: number; height: number };
+    error?: string;
+    captions_applied?: boolean;
+    caption_error?: string;
+  };
+}
 
+// Module-level variables - persist across navigation, cleared on refresh
+let pendingClips: Clip[] | null = null;
+let processedClips: ProcessedClip[] | null = null;
+
+// Pending clips (from shorts page to region-selector)
 export function setPendingClips(clips: Clip[]): void {
   pendingClips = clips;
 }
@@ -42,4 +64,21 @@ export function clearPendingClips(): void {
 
 export function hasPendingClips(): boolean {
   return pendingClips !== null && pendingClips.length > 0;
+}
+
+// Processed clips (from region-selector to results page)
+export function setProcessedClips(clips: ProcessedClip[]): void {
+  processedClips = clips;
+}
+
+export function getProcessedClips(): ProcessedClip[] | null {
+  return processedClips;
+}
+
+export function clearProcessedClips(): void {
+  processedClips = null;
+}
+
+export function hasProcessedClips(): boolean {
+  return processedClips !== null && processedClips.length > 0;
 }
