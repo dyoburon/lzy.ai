@@ -269,7 +269,7 @@ def concatenate_clips(clip_paths, output_path, use_crossfade=False, crossfade_du
 
 def _concatenate_direct(clip_paths, output_path):
     """
-    Concatenate clips using the concat demuxer (fast, no re-encoding).
+    Concatenate clips using the concat demuxer with re-encoding for compatibility.
     """
     # Create a temporary file list for concat demuxer
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
@@ -280,13 +280,22 @@ def _concatenate_direct(clip_paths, output_path):
         list_file = f.name
 
     try:
+        # Re-encode to ensure compatibility with all players/browsers
         cmd = [
             'ffmpeg',
             '-y',
             '-f', 'concat',
             '-safe', '0',
             '-i', list_file,
-            '-c', 'copy',
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',  # Ensure compatibility with all players/browsers
+            '-profile:v', 'high',
+            '-level', '4.0',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-movflags', '+faststart',  # Move moov atom to beginning for streaming
             output_path
         ]
 
@@ -392,10 +401,14 @@ def _concatenate_with_crossfade(clip_paths, output_path, crossfade_duration):
         '-map', '[outv]',
         '-map', '[outa]',
         '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',  # Ensure compatibility with all players/browsers
+        '-profile:v', 'high',
+        '-level', '4.0',
         '-preset', 'fast',
         '-crf', '23',
         '-c:a', 'aac',
         '-b:a', '192k',
+        '-movflags', '+faststart',  # Move moov atom to beginning for streaming
         output_path
     ]
 
