@@ -81,23 +81,26 @@ export default function RegionSelectorPage() {
   // Region selection state
   const [splitRatio, setSplitRatio] = useState(0.6);
   const [topRegionId, setTopRegionId] = useState("content");
+  // Default regions sized to match 9:16 output with 60/40 split
+  // For 60% top: output AR is 9:(16*0.6)=9:9.6. In 16:9 source, width ~53%, height ~100%
+  // For 40% bottom: output AR is 9:(16*0.4)=9:6.4. In 16:9 source, width ~80%, height ~57%
   const [regions, setRegions] = useState<Region[]>([
     {
       id: "content",
       label: "Screen Content",
-      x: 5,
-      y: 5,
-      width: 60,
-      height: 90,
+      x: 2,
+      y: 0,
+      width: 53,
+      height: 100,
       color: "#8b5cf6",
     },
     {
       id: "webcam",
       label: "Webcam",
-      x: 70,
-      y: 60,
-      width: 25,
-      height: 35,
+      x: 58,
+      y: 22,
+      width: 40,
+      height: 56,
       color: "#22c55e",
     },
   ]);
@@ -129,7 +132,7 @@ export default function RegionSelectorPage() {
     silence_threshold: 0.5, // 500ms gap forces new caption segment
     word_spacing: 8,
     font_size: 56,
-    font_name: "Arial Bold",
+    font_name: "Arial Black",
     primary_color: "white",
     highlight_color: "yellow",
     highlight_scale: 1.3,
@@ -420,9 +423,9 @@ export default function RegionSelectorPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900">
       <header className="border-b border-zinc-700/50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-2xl font-bold text-white">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="text-xl font-bold text-white">
               lzy<span className="text-purple-500">.ai</span>
             </Link>
             <span className="text-zinc-600">/</span>
@@ -437,50 +440,49 @@ export default function RegionSelectorPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-5">
         {error && (
-          <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-lg text-red-400 text-center">
+          <div className="mb-4 p-2 bg-red-900/30 border border-red-700 rounded text-red-400 text-center text-sm">
             {error}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Video with Selection Boxes */}
           <div className="lg:col-span-2">
             <div className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-white">Select Regions</h2>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-base font-semibold text-white">Select Regions</h2>
+                  <span className="text-xs text-zinc-500">Drag to move, corners to resize</span>
+                </div>
                 {/* Clip selector */}
                 {clips.length > 1 && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     <button
                       onClick={() => setCurrentClipIndex(Math.max(0, currentClipIndex - 1))}
                       disabled={currentClipIndex === 0}
-                      className="p-1 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
+                      className="p-0.5 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <span className="text-zinc-400 text-sm">
-                      Clip {currentClipIndex + 1} of {clips.length}
+                    <span className="text-zinc-400 text-xs">
+                      {currentClipIndex + 1}/{clips.length}
                     </span>
                     <button
                       onClick={() => setCurrentClipIndex(Math.min(clips.length - 1, currentClipIndex + 1))}
                       disabled={currentClipIndex === clips.length - 1}
-                      className="p-1 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
+                      className="p-0.5 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </button>
                   </div>
                 )}
               </div>
-
-              <p className="text-sm text-zinc-400 mb-4">
-                Drag boxes to reposition. Drag corners/edges to resize.
-              </p>
 
               {/* Video Container with Selection Overlay */}
               <div
@@ -497,6 +499,90 @@ export default function RegionSelectorPage() {
                     loop
                     autoPlay
                   />
+                )}
+
+                {/* Caption Preview Overlay - Shows when captions enabled */}
+                {captionOptions.enabled && (
+                  <div
+                    className="absolute left-0 right-0 flex justify-center px-4 pointer-events-none z-10"
+                    style={{ top: `${captionOptions.position_y}%`, transform: "translateY(-50%)" }}
+                  >
+                    <div
+                      className="px-3 py-1.5 rounded"
+                      style={{
+                        backgroundColor: captionOptions.background_enabled ? `rgba(0,0,0,${captionOptions.background_opacity / 100})` : 'transparent'
+                      }}
+                    >
+                      <span className="flex justify-center flex-wrap" style={{ gap: `${captionOptions.word_spacing}px` }}>
+                        {(() => {
+                          const colorMap: Record<string, string> = {
+                            white: "#ffffff", yellow: "#fbbf24", cyan: "#22d3ee",
+                            green: "#22c55e", orange: "#f97316", pink: "#ec4899"
+                          };
+                          const fontMap: Record<string, string> = {
+                            // System fonts
+                            "Arial": "Arial, sans-serif",
+                            "Arial Black": "'Arial Black', sans-serif",
+                            "Verdana": "Verdana, sans-serif",
+                            "Tahoma": "Tahoma, sans-serif",
+                            "Trebuchet MS": "'Trebuchet MS', sans-serif",
+                            "Georgia": "Georgia, serif",
+                            "Times New Roman": "'Times New Roman', serif",
+                            "Courier New": "'Courier New', monospace",
+                            "Impact": "Impact, sans-serif",
+                            "Comic Sans MS": "'Comic Sans MS', cursive",
+                            // Google Fonts (Open License)
+                            "Roboto": "Roboto, sans-serif",
+                            "Roboto Black": "'Roboto Black', Roboto, sans-serif",
+                            "Open Sans": "'Open Sans', sans-serif",
+                            "Lato": "Lato, sans-serif",
+                            "Montserrat": "Montserrat, sans-serif",
+                            "Oswald": "Oswald, sans-serif",
+                            "Poppins": "Poppins, sans-serif",
+                            "Raleway": "Raleway, sans-serif",
+                            "Inter": "Inter, sans-serif",
+                            "Nunito": "Nunito, sans-serif",
+                            "Bebas Neue": "'Bebas Neue', sans-serif",
+                            "Anton": "Anton, sans-serif",
+                            "Bangers": "Bangers, cursive",
+                            "Permanent Marker": "'Permanent Marker', cursive",
+                            "Lobster": "Lobster, cursive",
+                            "Pacifico": "Pacifico, cursive",
+                            "Dancing Script": "'Dancing Script', cursive",
+                            "Caveat": "Caveat, cursive",
+                            "Merriweather": "Merriweather, serif",
+                            "Playfair Display": "'Playfair Display', serif",
+                            "Lora": "Lora, serif",
+                            "Source Code Pro": "'Source Code Pro', monospace",
+                            "Fira Code": "'Fira Code', monospace",
+                          };
+                          const startIdx = Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group;
+                          return previewWords.slice(startIdx, startIdx + captionOptions.words_per_group).map((word, idx) => {
+                            const isActive = idx === previewWordIndex % captionOptions.words_per_group;
+                            const textColor = isActive ? colorMap[captionOptions.highlight_color] : colorMap[captionOptions.primary_color];
+                            const displayText = captionOptions.text_style === "uppercase" ? word.toUpperCase() : word;
+                            return (
+                              <span
+                                key={idx}
+                                className="transition-all duration-150"
+                                style={{
+                                  fontFamily: fontMap[captionOptions.font_name] || "Arial, sans-serif",
+                                  fontWeight: "bold",
+                                  fontSize: `${Math.round(captionOptions.font_size / 3)}px`,
+                                  color: textColor,
+                                  transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
+                                  textShadow: captionOptions.shadow_enabled ? "2px 2px 4px rgba(0,0,0,0.8)" : captionOptions.animation_style === "glow" && isActive ? `0 0 10px ${textColor}, 0 0 20px ${textColor}` : "none",
+                                  WebkitTextStroke: captionOptions.outline_enabled ? `${captionOptions.outline_width / 2}px ${captionOptions.outline_color}` : "0",
+                                }}
+                              >
+                                {displayText}
+                              </span>
+                            );
+                          });
+                        })()}
+                      </span>
+                    </div>
+                  </div>
                 )}
 
                 {/* Selection Boxes Overlay */}
@@ -542,118 +628,133 @@ export default function RegionSelectorPage() {
                 </div>
               </div>
 
-              {/* Clip Info */}
-              {clips[currentClipIndex] && (
-                <div className="mt-4 p-3 bg-zinc-900 rounded-lg">
-                  <h3 className="text-white font-medium">{clips[currentClipIndex].moment.title}</h3>
-                  <p className="text-zinc-400 text-sm">
-                    {clips[currentClipIndex].moment.start_time} - {clips[currentClipIndex].moment.end_time}
-                  </p>
-                </div>
-              )}
-
-              {/* Region Legend */}
-              <div className="flex gap-4 mt-4">
-                {regions.map((region) => (
-                  <div
-                    key={region.id}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${selectedRegion === region.id ? "bg-zinc-700" : "bg-zinc-800 hover:bg-zinc-700"
-                      }`}
-                    onClick={() => setSelectedRegion(region.id)}
-                  >
-                    <div className="w-3 h-3 rounded" style={{ backgroundColor: region.color }} />
-                    <span className="text-sm text-white">{region.label}</span>
+              {/* Clip Info + Region Legend Row */}
+              <div className="flex items-center justify-between mt-3">
+                {clips[currentClipIndex] && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-white font-medium truncate max-w-[250px]">{clips[currentClipIndex].moment.title}</span>
+                    <span className="text-zinc-500 text-xs">
+                      {clips[currentClipIndex].moment.start_time} - {clips[currentClipIndex].moment.end_time}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Preview & Controls */}
-          <div className="space-y-6">
-            {/* Layout Order */}
-            <div className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-              <h3 className="text-lg font-semibold text-white mb-4">Layout Order</h3>
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-zinc-500 text-sm w-16">Top:</span>
-                  <div
-                    className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg"
-                    style={{
-                      backgroundColor: `${topRegion?.color}22`,
-                      border: `1px solid ${topRegion?.color}`,
-                    }}
-                  >
-                    <div className="w-3 h-3 rounded" style={{ backgroundColor: topRegion?.color }} />
-                    <span className="text-sm text-white">{topRegion?.label}</span>
-                  </div>
-                </div>
-
-                <div className="flex justify-center">
-                  <button
-                    onClick={swapRegions}
-                    className="p-2 bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors"
-                    title="Swap positions"
-                  >
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <span className="text-zinc-500 text-sm w-16">Bottom:</span>
-                  <div
-                    className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg"
-                    style={{
-                      backgroundColor: `${bottomRegion?.color}22`,
-                      border: `1px solid ${bottomRegion?.color}`,
-                    }}
-                  >
-                    <div className="w-3 h-3 rounded" style={{ backgroundColor: bottomRegion?.color }} />
-                    <span className="text-sm text-white">{bottomRegion?.label}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Split Ratio */}
-            <div className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-              <h3 className="text-lg font-semibold text-white mb-4">Split Ratio</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Top: {Math.round(splitRatio * 100)}%</span>
-                  <span className="text-zinc-400">Bottom: {Math.round((1 - splitRatio) * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="30"
-                  max="70"
-                  value={splitRatio * 100}
-                  onChange={(e) => setSplitRatio(parseInt(e.target.value) / 100)}
-                  className="w-full accent-purple-500"
-                />
+                )}
                 <div className="flex gap-2">
-                  {[50, 60, 70].map((ratio) => (
+                  {regions.map((region) => (
                     <button
-                      key={ratio}
-                      onClick={() => setSplitRatio(ratio / 100)}
-                      className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${Math.round(splitRatio * 100) === ratio
-                        ? "bg-purple-600 text-white"
-                        : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
-                        }`}
+                      key={region.id}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm cursor-pointer transition-colors ${selectedRegion === region.id ? "bg-zinc-600" : "bg-zinc-800 hover:bg-zinc-700"}`}
+                      onClick={() => setSelectedRegion(region.id)}
                     >
-                      {ratio}/{100 - ratio}
+                      <div className="w-2.5 h-2.5 rounded" style={{ backgroundColor: region.color }} />
+                      <span className="text-white">{region.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
+
+              {/* Process Button - Full Width */}
+              <button
+                onClick={handleProcessClips}
+                disabled={processing}
+                className="w-full mt-3 px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {processing ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Processing {clips.length} clip{clips.length !== 1 ? "s" : ""}...
+                  </>
+                ) : (
+                  <>Create {clips.length} Vertical Short{clips.length !== 1 ? "s" : ""}</>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Preview & Controls */}
+          <div className="space-y-3">
+            {/* Layout Order + Split Ratio + Preview Combined */}
+            <div className="p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-white">Layout</h3>
+                <button
+                  onClick={swapRegions}
+                  className="p-1 bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
+                  title="Swap positions"
+                >
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex gap-2 mb-2">
+                <div
+                  className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-xs"
+                  style={{ backgroundColor: `${topRegion?.color}22`, border: `1px solid ${topRegion?.color}` }}
+                >
+                  <div className="w-2 h-2 rounded" style={{ backgroundColor: topRegion?.color }} />
+                  <span className="text-white">{topRegion?.label}</span>
+                  <span className="text-zinc-400 ml-auto">{Math.round(splitRatio * 100)}%</span>
+                </div>
+                <div
+                  className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-xs"
+                  style={{ backgroundColor: `${bottomRegion?.color}22`, border: `1px solid ${bottomRegion?.color}` }}
+                >
+                  <div className="w-2 h-2 rounded" style={{ backgroundColor: bottomRegion?.color }} />
+                  <span className="text-white">{bottomRegion?.label}</span>
+                  <span className="text-zinc-400 ml-auto">{Math.round((1 - splitRatio) * 100)}%</span>
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                {[50, 60, 70].map((ratio) => (
+                  <button
+                    key={ratio}
+                    onClick={() => setSplitRatio(ratio / 100)}
+                    className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${Math.round(splitRatio * 100) === ratio
+                      ? "bg-purple-600 text-white"
+                      : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                      }`}
+                  >
+                    {ratio}/{100 - ratio}
+                  </button>
+                ))}
+              </div>
+              {/* Layout Preview - Centered */}
+              <div className="flex flex-col items-center pt-3 mt-3 border-t border-zinc-700">
+                <div
+                  className="w-16 bg-zinc-900 rounded overflow-hidden border border-zinc-600"
+                  style={{ aspectRatio: "9/16" }}
+                >
+                  <div
+                    className="w-full flex items-center justify-center text-[10px] text-white"
+                    style={{
+                      height: `${splitRatio * 100}%`,
+                      backgroundColor: `${topRegion?.color}66`,
+                      borderBottom: "1px solid rgba(255,255,255,0.2)",
+                    }}
+                  >
+                    {topRegion?.label.split(" ")[0]}
+                  </div>
+                  <div
+                    className="w-full flex items-center justify-center text-[10px] text-white"
+                    style={{
+                      height: `${(1 - splitRatio) * 100}%`,
+                      backgroundColor: `${bottomRegion?.color}66`,
+                    }}
+                  >
+                    {bottomRegion?.label.split(" ")[0]}
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500 mt-2">1080×1920</p>
+              </div>
             </div>
 
             {/* Animated Captions */}
-            <div className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-white">Animated Captions</h3>
+            <div className="p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-white">Captions</h3>
                 <button
                   onClick={() => setCaptionOptions(prev => ({ ...prev, enabled: !prev.enabled }))}
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${captionOptions.enabled ? "bg-purple-600" : "bg-zinc-600"}`}
@@ -663,234 +764,141 @@ export default function RegionSelectorPage() {
               </div>
 
               {captionOptions.enabled && (
-                <div className="space-y-3">
-                  {/* Live Caption Preview - Compact */}
-                  <div className="relative rounded-lg overflow-hidden bg-gradient-to-b from-zinc-800 to-zinc-900" style={{ height: "120px" }}>
-                    <div
-                      className="absolute left-0 right-0 flex justify-center px-2"
-                      style={{ top: `${captionOptions.position_y}%`, transform: "translateY(-50%)" }}
-                    >
-                      <div
-                        className="px-2 py-1 rounded"
-                        style={{
-                          backgroundColor: captionOptions.background_enabled ? `rgba(0,0,0,${captionOptions.background_opacity / 100})` : 'transparent'
-                        }}
-                      >
-                        <span className="flex justify-center flex-wrap" style={{ gap: `${captionOptions.word_spacing}px` }}>
-                          {(() => {
-                            const colorMap: Record<string, string> = {
-                              white: "#ffffff", yellow: "#fbbf24", cyan: "#22d3ee",
-                              green: "#22c55e", orange: "#f97316", pink: "#ec4899",
-                              red: "#ef4444", blue: "#3b82f6", purple: "#a855f7"
-                            };
-                            const fontMap: Record<string, string> = {
-                              "Arial Bold": "Arial, sans-serif",
-                              "Arial": "Arial, sans-serif",
-                              "Impact": "Impact, sans-serif",
-                              "Helvetica": "Helvetica, Arial, sans-serif",
-                              "Verdana": "Verdana, sans-serif",
-                              "Comic Sans MS": "'Comic Sans MS', cursive",
-                              "Georgia": "Georgia, serif",
-                              "Times New Roman": "'Times New Roman', serif",
-                              "Courier New": "'Courier New', monospace",
-                              "Trebuchet MS": "'Trebuchet MS', sans-serif",
-                              "Futura": "Futura, sans-serif",
-                              "Roboto": "Roboto, sans-serif",
-                              "Montserrat": "Montserrat, sans-serif",
-                              "Oswald": "Oswald, sans-serif",
-                              "Bebas Neue": "'Bebas Neue', sans-serif"
-                            };
-                            const startIdx = Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group;
-                            return previewWords.slice(startIdx, startIdx + captionOptions.words_per_group).map((word, idx) => {
-                              const isActive = idx === previewWordIndex % captionOptions.words_per_group;
-                              const textColor = isActive ? colorMap[captionOptions.highlight_color] : colorMap[captionOptions.primary_color];
-                              const displayText = captionOptions.text_style === "uppercase" ? word.toUpperCase()
-                                : captionOptions.text_style === "capitalize" ? word.charAt(0).toUpperCase() + word.slice(1) : word;
-                              return (
-                                <span
-                                  key={idx}
-                                  className={`transition-all duration-150 ${captionOptions.animation_style === "bounce" && isActive ? "animate-bounce" : ""}`}
-                                  style={{
-                                    fontFamily: fontMap[captionOptions.font_name] || "Arial, sans-serif",
-                                    fontWeight: captionOptions.font_name.includes("Bold") || ["Impact", "Bebas Neue", "Oswald"].includes(captionOptions.font_name) ? "bold" : "normal",
-                                    fontSize: `${Math.round(captionOptions.font_size / 4)}px`,
-                                    color: textColor,
-                                    transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
-                                    textShadow: captionOptions.shadow_enabled ? `2px 2px 4px ${captionOptions.shadow_color}` : captionOptions.animation_style === "glow" && isActive ? `0 0 10px ${textColor}, 0 0 20px ${textColor}` : "none",
-                                    WebkitTextStroke: captionOptions.outline_enabled ? `${captionOptions.outline_width / 2}px ${captionOptions.outline_color}` : "0",
-                                  }}
-                                >
-                                  {displayText}
-                                </span>
-                              );
-                            });
-                          })()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Position Fine-tune */}
-                  <div>
-                    <label className="block text-xs text-zinc-500 mb-1">Position: {captionOptions.position_y}%</label>
-                    <div className="flex gap-2 items-center">
-                      <span className="text-xs text-zinc-500">Top</span>
-                      <input type="range" min="10" max="90" value={captionOptions.position_y}
-                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, position_y: parseInt(e.target.value) }))}
-                        className="flex-1 accent-purple-500 h-1" />
-                      <span className="text-xs text-zinc-500">Bottom</span>
-                    </div>
-                  </div>
-
-                  {/* Compact Controls Grid */}
-                  <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
+                  {/* Controls Grid */}
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
                     {/* Font */}
                     <div>
-                      <label className="block text-xs text-zinc-500 mb-1">Font</label>
+                      <label className="block text-xs text-zinc-500 mb-0.5">Font</label>
                       <select
                         value={captionOptions.font_name}
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_name: e.target.value }))}
                         className="w-full px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-white text-xs focus:outline-none"
                       >
-                        <optgroup label="Sans-Serif">
-                          <option value="Arial Bold">Arial Bold</option>
+                        <optgroup label="System Fonts">
                           <option value="Arial">Arial</option>
-                          <option value="Helvetica">Helvetica</option>
+                          <option value="Arial Black">Arial Black</option>
                           <option value="Verdana">Verdana</option>
+                          <option value="Tahoma">Tahoma</option>
                           <option value="Trebuchet MS">Trebuchet MS</option>
-                        </optgroup>
-                        <optgroup label="Display">
-                          <option value="Impact">Impact</option>
-                          <option value="Bebas Neue">Bebas Neue</option>
-                          <option value="Oswald">Oswald</option>
-                        </optgroup>
-                        <optgroup label="Modern">
-                          <option value="Roboto">Roboto</option>
-                          <option value="Montserrat">Montserrat</option>
-                        </optgroup>
-                        <optgroup label="Serif">
                           <option value="Georgia">Georgia</option>
                           <option value="Times New Roman">Times New Roman</option>
-                        </optgroup>
-                        <optgroup label="Other">
-                          <option value="Comic Sans MS">Comic Sans MS</option>
                           <option value="Courier New">Courier New</option>
+                          <option value="Impact">Impact</option>
+                          <option value="Comic Sans MS">Comic Sans MS</option>
+                        </optgroup>
+                        <optgroup label="Google Fonts - Sans">
+                          <option value="Roboto">Roboto</option>
+                          <option value="Roboto Black">Roboto Black</option>
+                          <option value="Open Sans">Open Sans</option>
+                          <option value="Lato">Lato</option>
+                          <option value="Montserrat">Montserrat</option>
+                          <option value="Poppins">Poppins</option>
+                          <option value="Raleway">Raleway</option>
+                          <option value="Inter">Inter</option>
+                          <option value="Nunito">Nunito</option>
+                        </optgroup>
+                        <optgroup label="Google Fonts - Display">
+                          <option value="Oswald">Oswald</option>
+                          <option value="Bebas Neue">Bebas Neue</option>
+                          <option value="Anton">Anton</option>
+                          <option value="Bangers">Bangers</option>
+                          <option value="Permanent Marker">Permanent Marker</option>
+                          <option value="Lobster">Lobster</option>
+                        </optgroup>
+                        <optgroup label="Google Fonts - Script">
+                          <option value="Pacifico">Pacifico</option>
+                          <option value="Dancing Script">Dancing Script</option>
+                          <option value="Caveat">Caveat</option>
+                        </optgroup>
+                        <optgroup label="Google Fonts - Serif">
+                          <option value="Merriweather">Merriweather</option>
+                          <option value="Playfair Display">Playfair Display</option>
+                          <option value="Lora">Lora</option>
+                        </optgroup>
+                        <optgroup label="Google Fonts - Mono">
+                          <option value="Source Code Pro">Source Code Pro</option>
+                          <option value="Fira Code">Fira Code</option>
                         </optgroup>
                       </select>
                     </div>
-
-                    {/* Font Size */}
+                    {/* Size */}
                     <div>
-                      <label className="block text-xs text-zinc-500 mb-1">Size: {captionOptions.font_size}px</label>
+                      <label className="block text-xs text-zinc-500 mb-0.5">Size: {captionOptions.font_size}px</label>
                       <input type="range" min="32" max="96" step="4" value={captionOptions.font_size}
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_size: parseInt(e.target.value) }))}
-                        className="w-full accent-purple-500 h-1" />
+                        className="w-full accent-purple-500 h-1.5" />
                     </div>
-
+                    {/* Position */}
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-0.5">Position: {captionOptions.position_y}%</label>
+                      <input type="range" min="10" max="90" value={captionOptions.position_y}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, position_y: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-500 h-1.5" />
+                    </div>
                     {/* Words */}
                     <div>
-                      <label className="block text-xs text-zinc-500 mb-1">Max Words: {captionOptions.words_per_group}</label>
+                      <label className="block text-xs text-zinc-500 mb-0.5">Words: {captionOptions.words_per_group}</label>
                       <input type="range" min="1" max="5" value={captionOptions.words_per_group}
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, words_per_group: parseInt(e.target.value) }))}
-                        className="w-full accent-purple-500 h-1" />
+                        className="w-full accent-purple-500 h-1.5" />
                     </div>
-
-                    {/* Silence Threshold */}
-                    <div>
-                      <label className="block text-xs text-zinc-500 mb-1">Pause Break: {(captionOptions.silence_threshold * 1000).toFixed(0)}ms</label>
-                      <input type="range" min="0.2" max="1.5" step="0.1" value={captionOptions.silence_threshold}
-                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, silence_threshold: parseFloat(e.target.value) }))}
-                        className="w-full accent-purple-500 h-1" />
-                    </div>
-
                     {/* Word Spacing */}
-                    <div>
-                      <label className="block text-xs text-zinc-500 mb-1">Spacing: {captionOptions.word_spacing}px</label>
-                      <input type="range" min="2" max="24" value={captionOptions.word_spacing}
+                    <div className="col-span-2">
+                      <label className="block text-xs text-zinc-500 mb-0.5">Word Spacing: {captionOptions.word_spacing}px</label>
+                      <input type="range" min="0" max="60" value={captionOptions.word_spacing}
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, word_spacing: parseInt(e.target.value) }))}
-                        className="w-full accent-purple-500 h-1" />
+                        className="w-full accent-purple-500 h-1.5" />
                     </div>
                   </div>
 
-                  {/* Text Style Row */}
-                  <div className="flex gap-1">
-                    {([
-                      { value: "normal", label: "Aa" },
-                      { value: "uppercase", label: "AA" },
-                      { value: "capitalize", label: "Aa" }
-                    ] as const).map((style) => (
+                  {/* Style + Effect Row */}
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {(["normal", "uppercase"] as const).map((style) => (
                       <button
-                        key={style.value}
-                        onClick={() => setCaptionOptions(prev => ({ ...prev, text_style: style.value }))}
-                        className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${captionOptions.text_style === style.value ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400"}`}
+                        key={style}
+                        onClick={() => setCaptionOptions(prev => ({ ...prev, text_style: style }))}
+                        className={`px-2 py-1 text-xs rounded transition-colors ${captionOptions.text_style === style ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400"}`}
                       >
-                        {style.label}
+                        {style === "normal" ? "Aa" : "AA"}
+                      </button>
+                    ))}
+                    <span className="text-zinc-600 mx-1">|</span>
+                    {(["scale", "color", "both", "glow"] as const).map((anim) => (
+                      <button
+                        key={anim}
+                        onClick={() => setCaptionOptions(prev => ({ ...prev, animation_style: anim }))}
+                        className={`px-1.5 py-1 text-xs rounded transition-colors ${captionOptions.animation_style === anim ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400"}`}
+                      >
+                        {anim.charAt(0).toUpperCase() + anim.slice(1)}
                       </button>
                     ))}
                   </div>
 
                   {/* Colors Row */}
-                  <div className="flex gap-3 items-center">
-                    <div className="flex-1">
-                      <label className="block text-xs text-zinc-500 mb-1">Text</label>
-                      <div className="flex gap-1">
-                        {["white", "yellow", "cyan", "green", "pink"].map((color) => {
-                          const colorMap: Record<string, string> = { white: "#fff", yellow: "#fbbf24", cyan: "#22d3ee", green: "#22c55e", pink: "#ec4899" };
-                          return (
-                            <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, primary_color: color }))}
-                              className={`w-5 h-5 rounded-full border ${captionOptions.primary_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
-                              style={{ backgroundColor: colorMap[color] }} />
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-xs text-zinc-500 mb-1">Highlight</label>
-                      <div className="flex gap-1">
-                        {["yellow", "cyan", "green", "orange", "pink"].map((color) => {
-                          const colorMap: Record<string, string> = { yellow: "#fbbf24", cyan: "#22d3ee", green: "#22c55e", orange: "#f97316", pink: "#ec4899" };
-                          return (
-                            <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}
-                              className={`w-5 h-5 rounded-full border ${captionOptions.highlight_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
-                              style={{ backgroundColor: colorMap[color] }} />
-                          );
-                        })}
-                      </div>
-                    </div>
+                  <div className="flex gap-2 items-center">
+                    <span className="text-xs text-zinc-500">Text:</span>
+                    {["white", "yellow", "cyan"].map((color) => {
+                      const colorMap: Record<string, string> = { white: "#fff", yellow: "#fbbf24", cyan: "#22d3ee" };
+                      return (
+                        <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, primary_color: color }))}
+                          className={`w-4 h-4 rounded-full border-2 ${captionOptions.primary_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
+                          style={{ backgroundColor: colorMap[color] }} />
+                      );
+                    })}
+                    <span className="text-xs text-zinc-500 ml-1">Highlight:</span>
+                    {["yellow", "cyan", "green", "pink"].map((color) => {
+                      const colorMap: Record<string, string> = { yellow: "#fbbf24", cyan: "#22d3ee", green: "#22c55e", pink: "#ec4899" };
+                      return (
+                        <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}
+                          className={`w-4 h-4 rounded-full border-2 ${captionOptions.highlight_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
+                          style={{ backgroundColor: colorMap[color] }} />
+                      );
+                    })}
                   </div>
 
-                  {/* Animation Row */}
-                  <div>
-                    <label className="block text-xs text-zinc-500 mb-1">Effect</label>
-                    <div className="flex gap-1">
-                      {([
-                        { value: "scale", label: "Scale" },
-                        { value: "color", label: "Color" },
-                        { value: "both", label: "Both" },
-                        { value: "bounce", label: "Bounce" },
-                        { value: "glow", label: "Glow" }
-                      ] as const).map((anim) => (
-                        <button
-                          key={anim.value}
-                          onClick={() => setCaptionOptions(prev => ({ ...prev, animation_style: anim.value }))}
-                          className={`flex-1 px-1 py-1 text-xs rounded transition-colors ${captionOptions.animation_style === anim.value ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400"}`}
-                        >
-                          {anim.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Scale Slider */}
-                  <div>
-                    <label className="block text-xs text-zinc-500 mb-1">Scale: {Math.round(captionOptions.highlight_scale * 100)}%</label>
-                    <input type="range" min="100" max="180" step="10" value={captionOptions.highlight_scale * 100}
-                      onChange={(e) => setCaptionOptions(prev => ({ ...prev, highlight_scale: parseInt(e.target.value) / 100 }))}
-                      className="w-full accent-purple-500 h-1" />
-                  </div>
-
-                  {/* Effects Toggles - Compact Row */}
-                  <div className="flex gap-2 pt-2 border-t border-zinc-700">
+                  {/* Effects Toggles */}
+                  <div className="flex gap-1.5">
                     {[
                       { key: "outline_enabled", label: "Outline" },
                       { key: "shadow_enabled", label: "Shadow" },
@@ -905,33 +913,6 @@ export default function RegionSelectorPage() {
                       </button>
                     ))}
                   </div>
-
-                  {/* Outline Options */}
-                  {captionOptions.outline_enabled && (
-                    <div className="flex gap-2 items-center pl-2">
-                      <span className="text-xs text-zinc-500">Color:</span>
-                      {["black", "white"].map((c) => (
-                        <button key={c} onClick={() => setCaptionOptions(prev => ({ ...prev, outline_color: c }))}
-                          className={`w-4 h-4 rounded border ${captionOptions.outline_color === c ? "border-purple-500" : "border-zinc-600"}`}
-                          style={{ backgroundColor: c }} />
-                      ))}
-                      <span className="text-xs text-zinc-500 ml-2">Width:</span>
-                      <input type="range" min="1" max="5" value={captionOptions.outline_width}
-                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, outline_width: parseInt(e.target.value) }))}
-                        className="w-16 accent-purple-500 h-1" />
-                    </div>
-                  )}
-
-                  {/* Background Options */}
-                  {captionOptions.background_enabled && (
-                    <div className="flex gap-2 items-center pl-2">
-                      <span className="text-xs text-zinc-500">Opacity:</span>
-                      <input type="range" min="20" max="100" value={captionOptions.background_opacity}
-                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, background_opacity: parseInt(e.target.value) }))}
-                        className="flex-1 accent-purple-500 h-1" />
-                      <span className="text-xs text-zinc-500">{captionOptions.background_opacity}%</span>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -939,59 +920,6 @@ export default function RegionSelectorPage() {
                 <p className="text-xs text-zinc-500">Enable to add animated captions.</p>
               )}
             </div>
-
-            {/* Layout Preview */}
-            <div className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-              <h3 className="text-lg font-semibold text-white mb-4">Layout Preview</h3>
-              <div className="flex justify-center">
-                <div
-                  className="w-32 bg-zinc-900 rounded-lg overflow-hidden border border-zinc-600"
-                  style={{ aspectRatio: "9/16" }}
-                >
-                  <div
-                    className="w-full flex items-center justify-center text-xs font-medium text-white"
-                    style={{
-                      height: `${splitRatio * 100}%`,
-                      backgroundColor: `${topRegion?.color}66`,
-                      borderBottom: "1px solid rgba(255,255,255,0.2)",
-                    }}
-                  >
-                    {topRegion?.label.split(" ")[0]}
-                  </div>
-                  <div
-                    className="w-full flex items-center justify-center text-xs font-medium text-white"
-                    style={{
-                      height: `${(1 - splitRatio) * 100}%`,
-                      backgroundColor: `${bottomRegion?.color}66`,
-                    }}
-                  >
-                    {bottomRegion?.label.split(" ")[0]}
-                  </div>
-                </div>
-              </div>
-              <p className="text-center text-zinc-500 text-xs mt-3">1080x1920 (9:16)</p>
-            </div>
-
-            {/* Process Button */}
-            <button
-              onClick={handleProcessClips}
-              disabled={processing}
-              className="w-full px-6 py-4 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {processing ? (
-                <>
-                  <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Processing {clips.length} clip{clips.length !== 1 ? "s" : ""}...
-                </>
-              ) : (
-                <>
-                  Process {clips.length} Clip{clips.length !== 1 ? "s" : ""} to Vertical
-                </>
-              )}
-            </button>
           </div>
         </div>
       </main>
