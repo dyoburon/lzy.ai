@@ -32,6 +32,11 @@ from services.shorts import (
 )
 from services.idea_generator import process_video_for_ideas
 from services.channel_improver import analyze_video_for_improvements
+from services.audio_mixer import (
+    check_demucs_status,
+    separate_video_audio,
+    process_video_audio
+)
 
 # Environment variable definitions for the config endpoint
 ENV_VAR_CONFIG = {
@@ -465,6 +470,75 @@ def analyze_channel():
     result = analyze_video_for_improvements(video_url, channel_context)
 
     if "error" in result and "missing_env" not in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+# --- Audio Mixer Routes ---
+@app.route('/api/audio/status', methods=['GET'])
+def audio_status():
+    """Check if audio separation (Demucs) is available."""
+    return jsonify(check_demucs_status())
+
+
+@app.route('/api/audio/separate', methods=['POST'])
+def separate_audio():
+    """
+    Separate a video's audio into vocals and music stems.
+
+    Request body:
+    {
+        "video_data": "base64..."  // Base64 encoded video
+    }
+
+    Returns vocals and music as separate base64 audio files.
+    """
+    data = request.json
+    video_data = data.get('video_data')
+
+    if not video_data:
+        return jsonify({"error": "No video_data provided"}), 400
+
+    result = separate_video_audio(video_data)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@app.route('/api/audio/process', methods=['POST'])
+def process_audio():
+    """
+    Process a video's audio with mixing options.
+
+    Request body:
+    {
+        "video_data": "base64...",  // Base64 encoded video
+        "audio_options": {
+            "separate": true,  // Use AI to separate vocals/music
+            "use_vocals": true,  // Include vocals in output
+            "use_music": false,  // Include original music
+            "vocals_volume": 1.0,  // Vocals volume (0.0-2.0)
+            "music_volume": 0.5,  // Music volume (0.0-2.0)
+            "custom_audio": "base64...",  // Optional: custom audio to mix in
+            "custom_audio_volume": 0.3  // Custom audio volume
+        }
+    }
+
+    Returns processed video with modified audio.
+    """
+    data = request.json
+    video_data = data.get('video_data')
+    audio_options = data.get('audio_options', {})
+
+    if not video_data:
+        return jsonify({"error": "No video_data provided"}), 400
+
+    result = process_video_audio(video_data, audio_options)
+
+    if "error" in result:
         return jsonify(result), 400
 
     return jsonify(result)
