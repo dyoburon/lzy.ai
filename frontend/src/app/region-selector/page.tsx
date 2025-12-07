@@ -133,20 +133,20 @@ export default function RegionSelectorPage() {
     word_spacing: 8,
     font_size: 56,
     font_name: "Arial Black",
-    primary_color: "white",
-    highlight_color: "yellow",
+    primary_color: "#ffffff",
+    highlight_color: "#fbbf24",
     highlight_scale: 1.3,
     position: "bottom",
     position_y: 85,
     text_style: "normal",
     animation_style: "both",
     outline_enabled: true,
-    outline_color: "black",
+    outline_color: "#000000",
     outline_width: 3,
     shadow_enabled: true,
-    shadow_color: "black",
+    shadow_color: "#000000",
     background_enabled: false,
-    background_color: "black",
+    background_color: "#000000",
     background_opacity: 50,
   });
 
@@ -515,10 +515,6 @@ export default function RegionSelectorPage() {
                     >
                       <span className="flex justify-center flex-wrap" style={{ gap: `${captionOptions.word_spacing}px` }}>
                         {(() => {
-                          const colorMap: Record<string, string> = {
-                            white: "#ffffff", yellow: "#fbbf24", cyan: "#22d3ee",
-                            green: "#22c55e", orange: "#f97316", pink: "#ec4899"
-                          };
                           const fontMap: Record<string, string> = {
                             "Arial": "Arial, sans-serif",
                             "Arial Black": "'Arial Black', sans-serif",
@@ -541,7 +537,7 @@ export default function RegionSelectorPage() {
                           const startIdx = Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group;
                           return previewWords.slice(startIdx, startIdx + captionOptions.words_per_group).map((word, idx) => {
                             const isActive = idx === previewWordIndex % captionOptions.words_per_group;
-                            const textColor = isActive ? colorMap[captionOptions.highlight_color] : colorMap[captionOptions.primary_color];
+                            const textColor = isActive ? captionOptions.highlight_color : captionOptions.primary_color;
                             const displayText = captionOptions.text_style === "uppercase" ? word.toUpperCase() : word;
                             return (
                               <span
@@ -553,7 +549,7 @@ export default function RegionSelectorPage() {
                                   fontSize: `${Math.round(captionOptions.font_size / 3)}px`,
                                   color: textColor,
                                   transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
-                                  textShadow: captionOptions.shadow_enabled ? "2px 2px 4px rgba(0,0,0,0.8)" : captionOptions.animation_style === "glow" && isActive ? `0 0 10px ${textColor}, 0 0 20px ${textColor}` : "none",
+                                  textShadow: captionOptions.shadow_enabled ? `2px 2px 4px rgba(0,0,0,0.8)` : captionOptions.animation_style === "glow" && isActive ? `0 0 10px ${textColor}, 0 0 20px ${textColor}` : "none",
                                   WebkitTextStroke: captionOptions.outline_enabled ? `${captionOptions.outline_width / 2}px ${captionOptions.outline_color}` : "0",
                                 }}
                               >
@@ -840,25 +836,81 @@ export default function RegionSelectorPage() {
                   </div>
 
                   {/* Colors Row */}
-                  <div className="flex gap-2 items-center">
-                    <span className="text-xs text-zinc-500">Text:</span>
-                    {["white", "yellow", "cyan"].map((color) => {
-                      const colorMap: Record<string, string> = { white: "#fff", yellow: "#fbbf24", cyan: "#22d3ee" };
-                      return (
-                        <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, primary_color: color }))}
-                          className={`w-4 h-4 rounded-full border-2 ${captionOptions.primary_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
-                          style={{ backgroundColor: colorMap[color] }} />
-                      );
-                    })}
-                    <span className="text-xs text-zinc-500 ml-1">Highlight:</span>
-                    {["yellow", "cyan", "green", "pink"].map((color) => {
-                      const colorMap: Record<string, string> = { yellow: "#fbbf24", cyan: "#22d3ee", green: "#22c55e", pink: "#ec4899" };
-                      return (
-                        <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}
-                          className={`w-4 h-4 rounded-full border-2 ${captionOptions.highlight_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
-                          style={{ backgroundColor: colorMap[color] }} />
-                      );
-                    })}
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Text Color */}
+                    <div className="relative">
+                      <label className="block text-xs text-zinc-500 mb-1">Text Color</label>
+                      <div className="flex items-center gap-1">
+                        <div className="relative">
+                          <input
+                            type="color"
+                            value={captionOptions.primary_color}
+                            onChange={(e) => setCaptionOptions(prev => ({ ...prev, primary_color: e.target.value }))}
+                            className="w-8 h-8 rounded cursor-pointer border-2 border-zinc-600 bg-transparent"
+                          />
+                        </div>
+                        <input
+                          type="text"
+                          value={captionOptions.primary_color.toUpperCase()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                              setCaptionOptions(prev => ({ ...prev, primary_color: val }));
+                            }
+                          }}
+                          className="flex-1 px-1.5 py-1 bg-zinc-700 border border-zinc-600 rounded text-white text-xs font-mono focus:outline-none focus:border-purple-500 w-16"
+                          maxLength={7}
+                        />
+                      </div>
+                      {/* Quick presets */}
+                      <div className="flex gap-1 mt-1">
+                        {["#FFFFFF", "#FBBF24", "#22D3EE", "#22C55E", "#EC4899"].map((color) => (
+                          <button
+                            key={color}
+                            onClick={() => setCaptionOptions(prev => ({ ...prev, primary_color: color }))}
+                            className={`w-4 h-4 rounded-full border ${captionOptions.primary_color.toUpperCase() === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    {/* Highlight Color */}
+                    <div className="relative">
+                      <label className="block text-xs text-zinc-500 mb-1">Highlight Color</label>
+                      <div className="flex items-center gap-1">
+                        <div className="relative">
+                          <input
+                            type="color"
+                            value={captionOptions.highlight_color}
+                            onChange={(e) => setCaptionOptions(prev => ({ ...prev, highlight_color: e.target.value }))}
+                            className="w-8 h-8 rounded cursor-pointer border-2 border-zinc-600 bg-transparent"
+                          />
+                        </div>
+                        <input
+                          type="text"
+                          value={captionOptions.highlight_color.toUpperCase()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                              setCaptionOptions(prev => ({ ...prev, highlight_color: val }));
+                            }
+                          }}
+                          className="flex-1 px-1.5 py-1 bg-zinc-700 border border-zinc-600 rounded text-white text-xs font-mono focus:outline-none focus:border-purple-500 w-16"
+                          maxLength={7}
+                        />
+                      </div>
+                      {/* Quick presets */}
+                      <div className="flex gap-1 mt-1">
+                        {["#FBBF24", "#22D3EE", "#22C55E", "#EC4899", "#EF4444"].map((color) => (
+                          <button
+                            key={color}
+                            onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}
+                            className={`w-4 h-4 rounded-full border ${captionOptions.highlight_color.toUpperCase() === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Effects Toggles */}
