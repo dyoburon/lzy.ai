@@ -371,8 +371,11 @@ Style: Highlight,{font_name},{int(font_size * highlight_scale)},{highlight_color
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-    # Debug: Print the style line to see what's being generated
+    # Debug: Print the style line and colors to see what's being generated
     print(f"[generate_ass_subtitles] Generated Style line: Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},{back_color},1,0,0,0,100,100,{word_spacing},0,{border_style},{actual_outline},{actual_shadow},{alignment},50,50,{margin_v},1")
+    print(f"[generate_ass_subtitles] primary_color (text): {primary_color}")
+    print(f"[generate_ass_subtitles] highlight_color: {highlight_color}")
+    print(f"[generate_ass_subtitles] animation_style: {animation_style}")
 
     def format_time(seconds):
         """Convert seconds to ASS time format (H:MM:SS.cc)"""
@@ -399,6 +402,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # Build text with current word highlighted using ASS override tags
             text_parts = []
+
+            # Format colors with trailing & for ASS compatibility
+            hl_color = highlight_color if highlight_color.endswith('&') else f"{highlight_color}&"
+            prim_color = primary_color if primary_color.endswith('&') else f"{primary_color}&"
+
             for j, word in enumerate(words):
                 word_text = word['word']
 
@@ -408,20 +416,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 if j == i:
                     # Highlighted word - apply animation based on style
+                    # Use explicit \1c (primary color) for each word to avoid reset issues
                     if animation_style == 'scale':
-                        # Only scale, no color change
-                        text_parts.append(f"{{\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}{{\\r}}")
+                        # Only scale, keep primary color
+                        text_parts.append(f"{{\\1c{prim_color}\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}")
                     elif animation_style == 'color':
                         # Only color change, no scale
-                        text_parts.append(f"{{\\c{highlight_color}}}{word_text}{{\\r}}")
+                        text_parts.append(f"{{\\1c{hl_color}}}{word_text}")
                     elif animation_style == 'glow':
                         # Color + blur for glow effect
-                        text_parts.append(f"{{\\c{highlight_color}\\blur2}}{word_text}{{\\r}}")
+                        text_parts.append(f"{{\\1c{hl_color}\\blur2}}{word_text}")
                     else:  # 'both' or default
                         # Scale + color
-                        text_parts.append(f"{{\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}\\c{highlight_color}}}{word_text}{{\\r}}")
+                        text_parts.append(f"{{\\1c{hl_color}\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}")
                 else:
-                    text_parts.append(word_text)
+                    # Non-highlighted word - explicitly set primary color
+                    text_parts.append(f"{{\\1c{prim_color}}}{word_text}")
 
             full_text = " ".join(text_parts)
 
@@ -429,8 +439,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start_str = format_time(word_start)
             end_str = format_time(word_end)
 
-            ass_content += f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{full_text}\n"
+            dialogue_line = f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{full_text}\n"
+            ass_content += dialogue_line
 
+            # Debug: Print first dialogue line to see format
+            if len(ass_content.split('\n')) < 15:  # Only print first few lines
+                print(f"[generate_ass_subtitles] Sample dialogue: {dialogue_line.strip()}")
+
+    print(f"[generate_ass_subtitles] Total dialogue lines generated: {ass_content.count('Dialogue:')}")
     return ass_content
 
 
