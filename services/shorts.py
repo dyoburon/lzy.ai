@@ -671,6 +671,7 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
             'primary_color': caption_options.get('primary_color', 'white'),
             'highlight_color': caption_options.get('highlight_color', 'yellow'),
             'highlight_scale': caption_options.get('highlight_scale', 1.3),
+            'position_y': caption_options.get('position_y', 85),
         }
     )
 

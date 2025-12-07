@@ -234,7 +234,8 @@ def generate_ffmpeg_caption_filter(captions, video_width=1080, video_height=1920
 def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
                            font_size=56, font_name="Arial Bold",
                            primary_color="&HFFFFFF", highlight_color="&H00FFFF",
-                           outline_color="&H000000", highlight_scale=1.3):
+                           outline_color="&H000000", highlight_scale=1.3,
+                           position_y=85):
     """
     Generate ASS subtitle file content for animated captions.
 
@@ -247,10 +248,31 @@ def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
         highlight_color: Highlighted word color
         outline_color: Text outline color
         highlight_scale: Scale factor for highlighted word (1.3 = 30% bigger)
+        position_y: Vertical position as percentage from top (0-100, default 85)
 
     Returns:
         String content for .ass file
     """
+    # Calculate margin from bottom based on position_y percentage
+    # position_y=85 means 85% from top, so 15% from bottom
+    # MarginV in ASS is distance from bottom for alignment 2 (bottom-center)
+    # For top positioning, we need to use alignment 8 (top-center)
+
+    # Determine alignment and margin based on position
+    if position_y <= 33:
+        # Top third - use top alignment (8)
+        alignment = 8
+        margin_v = int(video_height * (position_y / 100))
+    elif position_y <= 66:
+        # Middle third - use middle alignment (5)
+        alignment = 5
+        margin_v = 0  # Middle alignment ignores MarginV
+    else:
+        # Bottom third - use bottom alignment (2)
+        alignment = 2
+        # MarginV is from bottom, so if position_y=85, margin from bottom = 15%
+        margin_v = int(video_height * ((100 - position_y) / 100))
+
     # ASS header
     ass_content = f"""[Script Info]
 Title: Auto-generated Captions
@@ -261,8 +283,8 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,50,50,120,1
-Style: Highlight,{font_name},{int(font_size * highlight_scale)},{highlight_color},&H000000FF,{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,50,50,120,1
+Style: Default,{font_name},{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,3,2,{alignment},50,50,{margin_v},1
+Style: Highlight,{font_name},{int(font_size * highlight_scale)},{highlight_color},&H000000FF,{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,4,2,{alignment},50,50,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -368,7 +390,7 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
             - primary_color: Normal text color (default white)
             - highlight_color: Highlighted word color (default yellow)
             - highlight_scale: Scale factor for highlighted word (default 1.3)
-            - position: vertical position (default "bottom")
+            - position_y: Vertical position as percentage from top (default 85)
 
     Returns:
         Dict with success status and processed video as base64
@@ -380,6 +402,7 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
     font_size = caption_options.get('font_size', 56)
     font_name = caption_options.get('font_name', 'Arial Bold')
     highlight_scale = caption_options.get('highlight_scale', 1.3)
+    position_y = caption_options.get('position_y', 85)
 
     # Convert color names to ASS format (&HBBGGRR)
     color_map = {
@@ -414,7 +437,8 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
             font_name=font_name,
             primary_color=primary_ass,
             highlight_color=highlight_ass,
-            highlight_scale=highlight_scale
+            highlight_scale=highlight_scale,
+            position_y=position_y
         )
 
         # Write ASS to temp file
