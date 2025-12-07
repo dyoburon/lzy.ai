@@ -54,7 +54,19 @@ interface ProcessedClip {
     file_size?: number;
     dimensions?: { width: number; height: number };
     error?: string;
+    captions_applied?: boolean;
+    transcription?: string;
+    caption_error?: string;
   };
+}
+
+interface CaptionOptions {
+  enabled: boolean;
+  words_per_group: number;
+  font_size: number;
+  primary_color: string;
+  highlight_color: string;
+  highlight_scale: number;
 }
 
 export default function RegionSelectorPage() {
@@ -107,6 +119,16 @@ export default function RegionSelectorPage() {
   const [processing, setProcessing] = useState(false);
   const [processedClips, setProcessedClips] = useState<ProcessedClip[]>([]);
   const [error, setError] = useState("");
+
+  // Caption options state
+  const [captionOptions, setCaptionOptions] = useState<CaptionOptions>({
+    enabled: true,
+    words_per_group: 3,
+    font_size: 56,
+    primary_color: "white",
+    highlight_color: "yellow",
+    highlight_scale: 1.3,
+  });
 
   // Load clips from in-memory store on mount
   useEffect(() => {
@@ -307,6 +329,7 @@ export default function RegionSelectorPage() {
               topRegionId,
               splitRatio,
             },
+            caption_options: captionOptions,
           }),
         }
       );
@@ -446,9 +469,25 @@ export default function RegionSelectorPage() {
                       />
                     </div>
                     <h3 className="text-white font-medium mb-2 truncate">{clip.moment.title}</h3>
-                    <div className="flex items-center justify-between text-sm text-zinc-400 mb-3">
+                    <div className="flex items-center justify-between text-sm text-zinc-400 mb-2">
                       <span>{clip.moment.start_time} - {clip.moment.end_time}</span>
                       <span>{(clip.processed.file_size! / 1024 / 1024).toFixed(1)} MB</span>
+                    </div>
+                    {/* Caption status */}
+                    <div className="flex items-center gap-2 text-xs mb-3">
+                      {clip.processed.captions_applied ? (
+                        <span className="px-2 py-1 bg-green-900/50 text-green-400 rounded">
+                          Captions Added
+                        </span>
+                      ) : clip.processed.caption_error ? (
+                        <span className="px-2 py-1 bg-yellow-900/50 text-yellow-400 rounded" title={clip.processed.caption_error}>
+                          No Captions (API Error)
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 bg-zinc-700 text-zinc-400 rounded">
+                          No Captions
+                        </span>
+                      )}
                     </div>
                     <button
                       onClick={() => downloadClip(clip)}
@@ -718,6 +757,135 @@ export default function RegionSelectorPage() {
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Animated Captions */}
+            <div className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Animated Captions</h3>
+                <button
+                  onClick={() => setCaptionOptions(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    captionOptions.enabled ? "bg-purple-600" : "bg-zinc-600"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      captionOptions.enabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {captionOptions.enabled && (
+                <div className="space-y-4">
+                  {/* Words per group */}
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">
+                      Words at a time: {captionOptions.words_per_group}
+                    </label>
+                    <input
+                      type="range"
+                      min="2"
+                      max="6"
+                      value={captionOptions.words_per_group}
+                      onChange={(e) => setCaptionOptions(prev => ({
+                        ...prev,
+                        words_per_group: parseInt(e.target.value)
+                      }))}
+                      className="w-full accent-purple-500"
+                    />
+                    <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                      <span>2</span>
+                      <span>4</span>
+                      <span>6</span>
+                    </div>
+                  </div>
+
+                  {/* Text Color */}
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Text Color</label>
+                    <div className="flex gap-2">
+                      {["white", "yellow", "cyan", "green"].map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => setCaptionOptions(prev => ({ ...prev, primary_color: color }))}
+                          className={`w-8 h-8 rounded-full border-2 transition-all ${
+                            captionOptions.primary_color === color
+                              ? "border-purple-500 scale-110"
+                              : "border-zinc-600 hover:border-zinc-500"
+                          }`}
+                          style={{
+                            backgroundColor: color === "white" ? "#ffffff" :
+                              color === "yellow" ? "#fbbf24" :
+                              color === "cyan" ? "#22d3ee" : "#22c55e"
+                          }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Highlight Color */}
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Highlight Color (active word)</label>
+                    <div className="flex gap-2">
+                      {["yellow", "cyan", "green", "orange", "pink"].map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}
+                          className={`w-8 h-8 rounded-full border-2 transition-all ${
+                            captionOptions.highlight_color === color
+                              ? "border-purple-500 scale-110"
+                              : "border-zinc-600 hover:border-zinc-500"
+                          }`}
+                          style={{
+                            backgroundColor: color === "yellow" ? "#fbbf24" :
+                              color === "cyan" ? "#22d3ee" :
+                              color === "green" ? "#22c55e" :
+                              color === "orange" ? "#f97316" : "#ec4899"
+                          }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Highlight Scale */}
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">
+                      Highlight Size: {Math.round(captionOptions.highlight_scale * 100)}%
+                    </label>
+                    <input
+                      type="range"
+                      min="100"
+                      max="180"
+                      step="10"
+                      value={captionOptions.highlight_scale * 100}
+                      onChange={(e) => setCaptionOptions(prev => ({
+                        ...prev,
+                        highlight_scale: parseInt(e.target.value) / 100
+                      }))}
+                      className="w-full accent-purple-500"
+                    />
+                    <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                      <span>100%</span>
+                      <span>140%</span>
+                      <span>180%</span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-zinc-500 mt-2">
+                    Words will appear on screen and the current word being spoken will be highlighted and enlarged.
+                  </p>
+                </div>
+              )}
+
+              {!captionOptions.enabled && (
+                <p className="text-sm text-zinc-500">
+                  Enable to add animated word-by-word captions that highlight as you speak.
+                </p>
+              )}
             </div>
 
             {/* Live Preview */}

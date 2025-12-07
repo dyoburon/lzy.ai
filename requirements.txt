@@ -7,3 +7,4 @@ youtube-transcript-api>=0.6.0
 discord.py>=2.3.0
 better-profanity>=0.7.0
 requests>=2.31.0
+openai>=1.0.0

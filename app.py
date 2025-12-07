@@ -21,7 +21,15 @@ app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5GB max
 from services.transcript import process_transcript, generate_chapters
 from services.youtube_live import check_live_status, get_channel_info
 from services.discord_notify import send_discord_notification
-from services.shorts import process_video_for_shorts, detect_interesting_moments, clip_all_moments, process_clip_to_vertical, process_clips_to_vertical
+from services.shorts import (
+    process_video_for_shorts,
+    detect_interesting_moments,
+    clip_all_moments,
+    process_clip_to_vertical,
+    process_clips_to_vertical,
+    process_clip_to_vertical_with_captions,
+    process_clips_to_vertical_with_captions
+)
 from services.idea_generator import process_video_for_ideas
 
 # Environment variable definitions for the config endpoint
@@ -50,6 +58,11 @@ ENV_VAR_CONFIG = {
         "configured": bool(os.environ.get("DISCORD_YOUTUBE_CHANNEL_ID")),
         "required_for": ["live-checker-notify"],
         "description": "Discord channel ID for notifications"
+    },
+    "OPENAI_API_KEY": {
+        "configured": bool(os.environ.get("OPENAI_API_KEY")),
+        "required_for": ["shorts-captions"],
+        "description": "OpenAI API key for Whisper transcription (animated captions)"
     }
 }
 
@@ -271,6 +284,7 @@ def clip_shorts_endpoint():
 def process_vertical_shorts():
     """
     Process clipped videos into vertical shorts with stacked regions.
+    Optionally adds animated captions if caption_options.enabled is true.
 
     Request body:
     {
@@ -282,6 +296,14 @@ def process_vertical_shorts():
         "layout": {
             "topRegionId": "content",
             "splitRatio": 0.6
+        },
+        "caption_options": {  # Optional - for animated captions
+            "enabled": true,
+            "words_per_group": 3,
+            "font_size": 56,
+            "primary_color": "white",
+            "highlight_color": "yellow",
+            "highlight_scale": 1.3
         }
     }
 
@@ -292,6 +314,7 @@ def process_vertical_shorts():
     clips = data.get('clips')
     regions = data.get('regions')
     layout = data.get('layout')
+    caption_options = data.get('caption_options')
 
     if not clips:
         return jsonify({"error": "No clips provided"}), 400
@@ -302,7 +325,18 @@ def process_vertical_shorts():
     if not layout:
         layout = {"topRegionId": "content", "splitRatio": 0.6}
 
-    result = process_clips_to_vertical(clips, regions, layout)
+    # Check if captions are requested
+    if caption_options and caption_options.get('enabled', False):
+        # Verify OpenAI API key is configured
+        if not os.environ.get("OPENAI_API_KEY"):
+            return jsonify({
+                "error": "OPENAI_API_KEY not configured. Captions require OpenAI Whisper API.",
+                "missing_env": "OPENAI_API_KEY"
+            }), 400
+        result = process_clips_to_vertical_with_captions(clips, regions, layout, caption_options)
+    else:
+        result = process_clips_to_vertical(clips, regions, layout)
+
     return jsonify(result)
 
 

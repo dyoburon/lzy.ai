@@ -29,6 +29,7 @@ interface DetectResult {
   video_id: string;
   moments: Moment[];
   transcript_preview: string;
+  full_transcript?: string;
   error?: string;
   missing_env?: string;
 }
@@ -78,6 +79,7 @@ export default function ShortsPage() {
   const [clipVideoUrls, setClipVideoUrls] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [missingEnv, setMissingEnv] = useState<string | null>(null);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
@@ -429,6 +431,52 @@ export default function ShortsPage() {
             {error && (
               <div className="mb-8 p-4 bg-red-900/30 border border-red-700 rounded-lg text-red-400">
                 {error}
+              </div>
+            )}
+
+            {/* Transcript Debug Accordion - Always shows when detectResult exists */}
+            {detectResult && (
+              <div className="mb-8 bg-zinc-800/50 border border-zinc-700 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setTranscriptOpen(!transcriptOpen)}
+                  className="w-full p-4 flex items-center justify-between text-left hover:bg-zinc-700/30 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <svg
+                      className={`w-5 h-5 text-zinc-400 transition-transform ${transcriptOpen ? 'rotate-90' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span className="text-white font-medium">View Transcript</span>
+                    {detectResult.full_transcript || detectResult.transcript_preview ? (
+                      <span className="text-zinc-500 text-sm">
+                        ({(detectResult.full_transcript || detectResult.transcript_preview || '').length} chars)
+                      </span>
+                    ) : (
+                      <span className="text-red-400 text-sm">(No transcript received)</span>
+                    )}
+                  </div>
+                  <span className="text-xs px-2 py-1 bg-zinc-700 text-zinc-400 rounded">
+                    {transcriptOpen ? 'Click to collapse' : 'Click to expand'}
+                  </span>
+                </button>
+                {transcriptOpen && (
+                  <div className="p-4 border-t border-zinc-700 max-h-96 overflow-y-auto">
+                    {detectResult.full_transcript || detectResult.transcript_preview ? (
+                      <pre className="text-zinc-300 text-sm whitespace-pre-wrap font-mono leading-relaxed">
+                        {detectResult.full_transcript || detectResult.transcript_preview}
+                      </pre>
+                    ) : (
+                      <div className="text-zinc-500 text-sm">
+                        <p className="mb-2">No transcript data available.</p>
+                        <p className="text-xs text-zinc-600">Debug info: {JSON.stringify(detectResult, null, 2)}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

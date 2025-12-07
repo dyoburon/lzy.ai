@@ -5,12 +5,20 @@
 # - Using Gemini AI to identify the most interesting segments
 # - Clipping out shorts-worthy segments with ffmpeg
 # - Exporting clips for validation
+# - Adding animated captions using Whisper transcription
 
 import os
 import subprocess
 import json
+import tempfile
+import base64
 import google.generativeai as genai
 from services.transcript import extract_video_id, format_timestamp
+from services.captions import (
+    transcribe_video_for_captions,
+    generate_ass_subtitles,
+    create_caption_overlay_video
+)
 
 # Configure Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -546,3 +554,140 @@ def clip_shorts(video_path, options=None):
         video_path=video_path,
         output_dir=options.get('output_dir')
     )
+
+
+def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_config, caption_options=None):
+    """
+    Process a clipped video into a vertical short with animated captions.
+
+    This function:
+    1. First processes the video to vertical format (crop + stack regions)
+    2. Transcribes the audio using Whisper API
+    3. Adds animated word-by-word captions that highlight as spoken
+
+    Args:
+        video_data_base64: Base64 encoded video data
+        regions: List of two region dicts with x, y, width, height (as percentages)
+        layout_config: Dict with layout settings (topRegionId, splitRatio)
+        caption_options: Dict with caption settings:
+            - enabled: Whether to add captions (default True)
+            - words_per_group: Words to show at once (default 3)
+            - font_size: Base font size (default 56)
+            - primary_color: Normal text color (default "white")
+            - highlight_color: Highlighted word color (default "yellow")
+            - highlight_scale: Scale factor for active word (default 1.3)
+
+    Returns:
+        Dict with success status and processed video as base64
+    """
+    if caption_options is None:
+        caption_options = {}
+
+    # Check if captions are enabled
+    captions_enabled = caption_options.get('enabled', True)
+
+    # Step 1: Process to vertical format first
+    vertical_result = process_clip_to_vertical(video_data_base64, regions, layout_config)
+
+    if not vertical_result.get('success'):
+        return vertical_result
+
+    # If captions disabled, return vertical result as-is
+    if not captions_enabled:
+        return vertical_result
+
+    # Step 2: Transcribe the vertical video for captions
+    words_per_group = caption_options.get('words_per_group', 3)
+
+    transcription_result = transcribe_video_for_captions(
+        vertical_result['video_data'],
+        words_per_group=words_per_group
+    )
+
+    if "error" in transcription_result:
+        # If transcription fails, return video without captions but note the error
+        return {
+            **vertical_result,
+            "caption_error": transcription_result['error'],
+            "captions_applied": False
+        }
+
+    captions = transcription_result.get('captions', [])
+
+    if not captions:
+        # No captions generated (silent video?), return as-is
+        return {
+            **vertical_result,
+            "captions_applied": False,
+            "transcription": transcription_result.get('text', '')
+        }
+
+    # Step 3: Add caption overlay
+    caption_result = create_caption_overlay_video(
+        vertical_result['video_data'],
+        captions,
+        caption_options={
+            'font_size': caption_options.get('font_size', 56),
+            'font_name': caption_options.get('font_name', 'Arial Bold'),
+            'primary_color': caption_options.get('primary_color', 'white'),
+            'highlight_color': caption_options.get('highlight_color', 'yellow'),
+            'highlight_scale': caption_options.get('highlight_scale', 1.3),
+        }
+    )
+
+    if not caption_result.get('success'):
+        # If caption overlay fails, return video without captions
+        return {
+            **vertical_result,
+            "caption_error": caption_result.get('error'),
+            "captions_applied": False
+        }
+
+    return {
+        "success": True,
+        "video_data": caption_result['video_data'],
+        "file_size": caption_result['file_size'],
+        "dimensions": vertical_result.get('dimensions', {"width": 1080, "height": 1920}),
+        "captions_applied": True,
+        "transcription": transcription_result.get('text', ''),
+        "word_count": len(transcription_result.get('words', []))
+    }
+
+
+def process_clips_to_vertical_with_captions(clips, regions, layout_config, caption_options=None):
+    """
+    Process multiple clips into vertical shorts with animated captions.
+
+    Args:
+        clips: List of clip results from clip_all_moments
+        regions: Region selections
+        layout_config: Layout configuration
+        caption_options: Caption styling options
+
+    Returns:
+        List of processed results
+    """
+    results = []
+    for clip in clips:
+        clip_result = clip.get('clip_result', {})
+        if not clip_result.get('success') or not clip_result.get('video_data'):
+            results.append({
+                "moment": clip.get('moment'),
+                "error": "No video data available for this clip"
+            })
+            continue
+
+        processed = process_clip_to_vertical_with_captions(
+            clip_result['video_data'],
+            regions,
+            layout_config,
+            caption_options
+        )
+
+        results.append({
+            "moment": clip.get('moment'),
+            "original_filename": clip_result.get('filename', 'clip.mp4'),
+            "processed": processed
+        })
+
+    return {"processed_clips": results}
