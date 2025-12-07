@@ -91,24 +91,50 @@ def detect_interesting_moments(transcript_text, num_clips=3, max_duration_second
     try:
         model = genai.GenerativeModel('gemini-2.5-pro')
 
-        # Build custom instructions section if provided
-        custom_instructions = ""
+        # Two completely separate prompt paths
         if custom_prompt and custom_prompt.strip():
-            custom_instructions = f"""
-ADDITIONAL INSTRUCTIONS FROM USER:
+            # CUSTOM PROMPT PATH - User has specific instructions
+            prompt = f"""
+You are helping a content creator find specific clips from their video. They have given you instructions about what they're looking for.
+
+Here is the transcript:
+{transcript_text}
+
+USER'S INSTRUCTIONS:
 {custom_prompt.strip()}
 
-Please prioritize these instructions when selecting moments.
-"""
+YOUR TASK: Find exactly {num_clips} clips that match what the user asked for above.
 
-        prompt = f"""
+How to interpret their request:
+- If they mention a SPECIFIC MOMENT (e.g., "the part where X happens"), find that moment and create {num_clips} different variations with slightly different start/end times so they can pick the best cut.
+- If they mention a THEME or IDEA (e.g., "clips about AI hallucinating"), find {num_clips} DIFFERENT moments throughout the video that match that theme.
+- If they specify a duration (e.g., "30 seconds"), use that. Otherwise default to 20-30 seconds per clip.
+
+IMPORTANT: Only return clips that match their request. Do not include unrelated "viral" moments.
+
+OUTPUT FORMAT (JSON array):
+[
+  {{
+    "start_time": "MM:SS",
+    "end_time": "MM:SS",
+    "title": "Short catchy title for the clip",
+    "reason": "How this matches the user's request",
+    "viral_score": 8
+  }}
+]
+
+Return ONLY the JSON array, no other text.
+"""
+        else:
+            # DEFAULT PROMPT PATH - Find viral moments
+            prompt = f"""
 You are an expert content strategist specializing in viral short-form content. Analyze this video transcript and identify the MOST INTERESTING MOMENTS that would make great standalone clips.
 
 Here is the transcript:
 {transcript_text}
 
-TASK: Identify exactly {num_clips} of the most engaging, interesting, or viral-worthy moments from this video.
-{custom_instructions}
+TASK: Identify exactly {num_clips} of the most engaging, viral-worthy moments from this video.
+
 CRITERIA for selecting moments:
 1. **Emotional peaks** - Funny moments, surprising revelations, intense reactions
 2. **Valuable insights** - Key tips, important information, "aha" moments
@@ -117,10 +143,11 @@ CRITERIA for selecting moments:
 5. **Visual potential** - Moments that likely have interesting visuals or actions
 
 RULES:
-1. Each clip should be between 30 seconds and {max_duration_seconds} seconds (max ~2 minutes)
+1. **TARGET LENGTH: 20-30 seconds** - This is the ideal length for viral shorts. Only go longer (up to {max_duration_seconds} seconds) if the moment truly requires it.
 2. Pick segments that can stand alone without additional context
 3. Avoid intros, outros, and "filler" content
 4. Focus on the most ENGAGING parts, not just informative ones
+5. Trim the fat - start right when the interesting part begins, end right after it concludes
 
 OUTPUT FORMAT (JSON array):
 [
