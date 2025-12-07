@@ -63,6 +63,7 @@ interface ProcessedClip {
 interface CaptionOptions {
   enabled: boolean;
   words_per_group: number;
+  word_spacing: number; // spacing between words in pixels
   font_size: number;
   font_name: string;
   primary_color: string;
@@ -131,12 +132,14 @@ export default function RegionSelectorPage() {
   // Processing state
   const [processing, setProcessing] = useState(false);
   const [processedClips, setProcessedClips] = useState<ProcessedClip[]>([]);
+  const [processedVideoUrls, setProcessedVideoUrls] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   // Caption options state
   const [captionOptions, setCaptionOptions] = useState<CaptionOptions>({
     enabled: true,
     words_per_group: 3,
+    word_spacing: 8,
     font_size: 56,
     font_name: "Arial Bold",
     primary_color: "white",
@@ -379,6 +382,15 @@ export default function RegionSelectorPage() {
         setError(data.error);
       } else if (data.processed_clips) {
         setProcessedClips(data.processed_clips);
+        // Create blob URLs once to avoid re-creating on every render
+        const urls = data.processed_clips.map((clip: ProcessedClip) => {
+          if (clip.processed.success && clip.processed.video_data) {
+            const blob = base64ToBlob(clip.processed.video_data, "video/mp4");
+            return URL.createObjectURL(blob);
+          }
+          return "";
+        });
+        setProcessedVideoUrls(urls);
         // Clear clips from memory after processing
         clearPendingClips();
       }
@@ -388,6 +400,15 @@ export default function RegionSelectorPage() {
       setProcessing(false);
     }
   };
+
+  // Cleanup processed video URLs on unmount
+  useEffect(() => {
+    return () => {
+      processedVideoUrls.forEach((url) => {
+        if (url) URL.revokeObjectURL(url);
+      });
+    };
+  }, [processedVideoUrls]);
 
   const downloadClip = (clip: ProcessedClip) => {
     if (!clip.processed.video_data) return;
@@ -498,11 +519,11 @@ export default function RegionSelectorPage() {
                 key={index}
                 className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg"
               >
-                {clip.processed.success && clip.processed.video_data ? (
+                {clip.processed.success && processedVideoUrls[index] ? (
                   <>
                     <div className="aspect-[9/16] bg-black rounded-lg overflow-hidden mb-4">
                       <video
-                        src={URL.createObjectURL(base64ToBlob(clip.processed.video_data, "video/mp4"))}
+                        src={processedVideoUrls[index]}
                         className="w-full h-full object-contain"
                         controls
                       />
@@ -797,403 +818,283 @@ export default function RegionSelectorPage() {
 
             {/* Animated Captions */}
             <div className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Animated Captions</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">Animated Captions</h3>
                 <button
                   onClick={() => setCaptionOptions(prev => ({ ...prev, enabled: !prev.enabled }))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${captionOptions.enabled ? "bg-purple-600" : "bg-zinc-600"
-                    }`}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${captionOptions.enabled ? "bg-purple-600" : "bg-zinc-600"}`}
                 >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${captionOptions.enabled ? "translate-x-6" : "translate-x-1"
-                      }`}
-                  />
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${captionOptions.enabled ? "translate-x-5" : "translate-x-1"}`} />
                 </button>
               </div>
 
               {captionOptions.enabled && (
-                <div className="space-y-5">
-                  {/* Live Caption Preview */}
-                  <div className="relative rounded-lg overflow-hidden" style={{ aspectRatio: "9/16", maxHeight: "280px" }}>
-                    <div className="absolute inset-0 bg-gradient-to-b from-zinc-800 to-zinc-900">
-                      {/* Simulated video background */}
-                      <div className="absolute inset-0 opacity-30">
-                        <div className="absolute top-0 left-0 right-0" style={{ height: `${splitRatio * 100}%`, backgroundColor: topRegion?.color }} />
-                        <div className="absolute bottom-0 left-0 right-0" style={{ height: `${(1 - splitRatio) * 100}%`, backgroundColor: bottomRegion?.color }} />
-                      </div>
-
-                      {/* Caption Preview */}
+                <div className="space-y-3">
+                  {/* Live Caption Preview - Compact */}
+                  <div className="relative rounded-lg overflow-hidden bg-gradient-to-b from-zinc-800 to-zinc-900" style={{ height: "120px" }}>
+                    <div
+                      className="absolute left-0 right-0 flex justify-center px-2"
+                      style={{ top: `${captionOptions.position_y}%`, transform: "translateY(-50%)" }}
+                    >
                       <div
-                        className="absolute left-0 right-0 flex justify-center px-2"
-                        style={{ top: `${captionOptions.position_y}%`, transform: "translateY(-50%)" }}
+                        className="px-2 py-1 rounded"
+                        style={{
+                          backgroundColor: captionOptions.background_enabled ? `rgba(0,0,0,${captionOptions.background_opacity / 100})` : 'transparent'
+                        }}
                       >
-                        <div
-                          className={`px-3 py-2 rounded-lg ${captionOptions.background_enabled ? '' : ''}`}
-                          style={{
-                            backgroundColor: captionOptions.background_enabled
-                              ? `rgba(0,0,0,${captionOptions.background_opacity / 100})`
-                              : 'transparent'
-                          }}
-                        >
-                          <span className="flex gap-1 justify-center flex-wrap">
-                            {previewWords.slice(
-                              Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group,
-                              Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group + captionOptions.words_per_group
-                            ).map((word, idx) => {
+                        <span className="flex justify-center flex-wrap" style={{ gap: `${captionOptions.word_spacing}px` }}>
+                          {(() => {
+                            const colorMap: Record<string, string> = {
+                              white: "#ffffff", yellow: "#fbbf24", cyan: "#22d3ee",
+                              green: "#22c55e", orange: "#f97316", pink: "#ec4899",
+                              red: "#ef4444", blue: "#3b82f6", purple: "#a855f7"
+                            };
+                            const fontMap: Record<string, string> = {
+                              "Arial Bold": "Arial, sans-serif",
+                              "Arial": "Arial, sans-serif",
+                              "Impact": "Impact, sans-serif",
+                              "Helvetica": "Helvetica, Arial, sans-serif",
+                              "Verdana": "Verdana, sans-serif",
+                              "Comic Sans MS": "'Comic Sans MS', cursive",
+                              "Georgia": "Georgia, serif",
+                              "Times New Roman": "'Times New Roman', serif",
+                              "Courier New": "'Courier New', monospace",
+                              "Trebuchet MS": "'Trebuchet MS', sans-serif",
+                              "Futura": "Futura, sans-serif",
+                              "Roboto": "Roboto, sans-serif",
+                              "Montserrat": "Montserrat, sans-serif",
+                              "Oswald": "Oswald, sans-serif",
+                              "Bebas Neue": "'Bebas Neue', sans-serif"
+                            };
+                            const startIdx = Math.floor(previewWordIndex / captionOptions.words_per_group) * captionOptions.words_per_group;
+                            return previewWords.slice(startIdx, startIdx + captionOptions.words_per_group).map((word, idx) => {
                               const isActive = idx === previewWordIndex % captionOptions.words_per_group;
-                              const colorMap: Record<string, string> = {
-                                white: "#ffffff", yellow: "#fbbf24", cyan: "#22d3ee",
-                                green: "#22c55e", orange: "#f97316", pink: "#ec4899",
-                                red: "#ef4444", blue: "#3b82f6", purple: "#a855f7"
-                              };
                               const textColor = isActive ? colorMap[captionOptions.highlight_color] : colorMap[captionOptions.primary_color];
                               const displayText = captionOptions.text_style === "uppercase" ? word.toUpperCase()
-                                : captionOptions.text_style === "capitalize" ? word.charAt(0).toUpperCase() + word.slice(1)
-                                  : word;
-
+                                : captionOptions.text_style === "capitalize" ? word.charAt(0).toUpperCase() + word.slice(1) : word;
                               return (
                                 <span
                                   key={idx}
-                                  className={`transition-all duration-150 ${captionOptions.animation_style === "bounce" && isActive ? "animate-bounce" : ""
-                                    }`}
+                                  className={`transition-all duration-150 ${captionOptions.animation_style === "bounce" && isActive ? "animate-bounce" : ""}`}
                                   style={{
-                                    fontFamily: captionOptions.font_name.includes("Bold") ? "Arial, sans-serif" : captionOptions.font_name,
-                                    fontWeight: captionOptions.font_name.includes("Bold") ? "bold" : "normal",
+                                    fontFamily: fontMap[captionOptions.font_name] || "Arial, sans-serif",
+                                    fontWeight: captionOptions.font_name.includes("Bold") || ["Impact", "Bebas Neue", "Oswald"].includes(captionOptions.font_name) ? "bold" : "normal",
                                     fontSize: `${Math.round(captionOptions.font_size / 4)}px`,
                                     color: textColor,
-                                    transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both")
-                                      ? `scale(${captionOptions.highlight_scale})`
-                                      : "scale(1)",
-                                    textShadow: captionOptions.shadow_enabled
-                                      ? `2px 2px 4px ${captionOptions.shadow_color}`
-                                      : captionOptions.animation_style === "glow" && isActive
-                                        ? `0 0 10px ${textColor}, 0 0 20px ${textColor}`
-                                        : "none",
-                                    WebkitTextStroke: captionOptions.outline_enabled
-                                      ? `${captionOptions.outline_width / 2}px ${captionOptions.outline_color}`
-                                      : "none",
+                                    transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
+                                    textShadow: captionOptions.shadow_enabled ? `2px 2px 4px ${captionOptions.shadow_color}` : captionOptions.animation_style === "glow" && isActive ? `0 0 10px ${textColor}, 0 0 20px ${textColor}` : "none",
+                                    WebkitTextStroke: captionOptions.outline_enabled ? `${captionOptions.outline_width / 2}px ${captionOptions.outline_color}` : "0",
                                   }}
                                 >
                                   {displayText}
                                 </span>
                               );
-                            })}
-                          </span>
-                        </div>
+                            });
+                          })()}
+                        </span>
                       </div>
                     </div>
-                    <div className="absolute bottom-2 left-2 right-2 text-center">
-                      <span className="text-xs text-zinc-500 bg-zinc-900/80 px-2 py-1 rounded">Live Preview</span>
-                    </div>
                   </div>
 
-                  {/* Position */}
+                  {/* Position Fine-tune */}
                   <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Position</label>
-                    <div className="flex gap-2 mb-3">
-                      {(["top", "middle", "bottom"] as const).map((pos) => (
-                        <button
-                          key={pos}
-                          onClick={() => {
-                            const yPos = pos === "top" ? 15 : pos === "middle" ? 50 : 85;
-                            setCaptionOptions(prev => ({ ...prev, position: pos, position_y: yPos }));
-                          }}
-                          className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors capitalize ${captionOptions.position === pos
-                              ? "bg-purple-600 text-white"
-                              : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
-                            }`}
-                        >
-                          {pos}
-                        </button>
-                      ))}
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500 mb-1">Fine-tune: {captionOptions.position_y}%</label>
-                      <input
-                        type="range"
-                        min="5"
-                        max="95"
-                        value={captionOptions.position_y}
+                    <label className="block text-xs text-zinc-500 mb-1">Position: {captionOptions.position_y}%</label>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-xs text-zinc-500">Top</span>
+                      <input type="range" min="10" max="90" value={captionOptions.position_y}
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, position_y: parseInt(e.target.value) }))}
-                        className="w-full accent-purple-500"
-                      />
+                        className="flex-1 accent-purple-500 h-1" />
+                      <span className="text-xs text-zinc-500">Bottom</span>
                     </div>
                   </div>
 
-                  {/* Font */}
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Font</label>
-                    <select
-                      value={captionOptions.font_name}
-                      onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_name: e.target.value }))}
-                      className="w-full px-3 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white text-sm focus:outline-none focus:border-purple-500"
-                    >
-                      <option value="Arial Bold">Arial Bold</option>
-                      <option value="Arial">Arial</option>
-                      <option value="Impact">Impact</option>
-                      <option value="Helvetica Bold">Helvetica Bold</option>
-                      <option value="Verdana Bold">Verdana Bold</option>
-                      <option value="Comic Sans MS">Comic Sans MS</option>
-                      <option value="Georgia Bold">Georgia Bold</option>
-                      <option value="Times New Roman Bold">Times New Roman Bold</option>
-                      <option value="Courier New Bold">Courier New Bold</option>
-                    </select>
-                  </div>
+                  {/* Compact Controls Grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Font */}
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Font</label>
+                      <select
+                        value={captionOptions.font_name}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_name: e.target.value }))}
+                        className="w-full px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-white text-xs focus:outline-none"
+                      >
+                        <optgroup label="Sans-Serif">
+                          <option value="Arial Bold">Arial Bold</option>
+                          <option value="Arial">Arial</option>
+                          <option value="Helvetica">Helvetica</option>
+                          <option value="Verdana">Verdana</option>
+                          <option value="Trebuchet MS">Trebuchet MS</option>
+                        </optgroup>
+                        <optgroup label="Display">
+                          <option value="Impact">Impact</option>
+                          <option value="Bebas Neue">Bebas Neue</option>
+                          <option value="Oswald">Oswald</option>
+                        </optgroup>
+                        <optgroup label="Modern">
+                          <option value="Roboto">Roboto</option>
+                          <option value="Montserrat">Montserrat</option>
+                        </optgroup>
+                        <optgroup label="Serif">
+                          <option value="Georgia">Georgia</option>
+                          <option value="Times New Roman">Times New Roman</option>
+                        </optgroup>
+                        <optgroup label="Other">
+                          <option value="Comic Sans MS">Comic Sans MS</option>
+                          <option value="Courier New">Courier New</option>
+                        </optgroup>
+                      </select>
+                    </div>
 
-                  {/* Font Size */}
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">
-                      Font Size: {captionOptions.font_size}px
-                    </label>
-                    <input
-                      type="range"
-                      min="32"
-                      max="96"
-                      step="4"
-                      value={captionOptions.font_size}
-                      onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_size: parseInt(e.target.value) }))}
-                      className="w-full accent-purple-500"
-                    />
-                    <div className="flex justify-between text-xs text-zinc-500 mt-1">
-                      <span>Small</span>
-                      <span>Medium</span>
-                      <span>Large</span>
+                    {/* Font Size */}
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Size: {captionOptions.font_size}px</label>
+                      <input type="range" min="32" max="96" step="4" value={captionOptions.font_size}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_size: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-500 h-1" />
+                    </div>
+
+                    {/* Words */}
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Words: {captionOptions.words_per_group}</label>
+                      <input type="range" min="1" max="5" value={captionOptions.words_per_group}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, words_per_group: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-500 h-1" />
+                    </div>
+
+                    {/* Word Spacing */}
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Spacing: {captionOptions.word_spacing}px</label>
+                      <input type="range" min="2" max="24" value={captionOptions.word_spacing}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, word_spacing: parseInt(e.target.value) }))}
+                        className="w-full accent-purple-500 h-1" />
                     </div>
                   </div>
 
-                  {/* Words per group */}
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">
-                      Words at a time: {captionOptions.words_per_group}
-                    </label>
-                    <input
-                      type="range"
-                      min="1"
-                      max="6"
-                      value={captionOptions.words_per_group}
-                      onChange={(e) => setCaptionOptions(prev => ({ ...prev, words_per_group: parseInt(e.target.value) }))}
-                      className="w-full accent-purple-500"
-                    />
-                    <div className="flex justify-between text-xs text-zinc-500 mt-1">
-                      <span>1</span>
-                      <span>3</span>
-                      <span>6</span>
+                  {/* Text Style Row */}
+                  <div className="flex gap-1">
+                    {([
+                      { value: "normal", label: "Aa" },
+                      { value: "uppercase", label: "AA" },
+                      { value: "capitalize", label: "Aa" }
+                    ] as const).map((style) => (
+                      <button
+                        key={style.value}
+                        onClick={() => setCaptionOptions(prev => ({ ...prev, text_style: style.value }))}
+                        className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${captionOptions.text_style === style.value ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400"}`}
+                      >
+                        {style.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Colors Row */}
+                  <div className="flex gap-3 items-center">
+                    <div className="flex-1">
+                      <label className="block text-xs text-zinc-500 mb-1">Text</label>
+                      <div className="flex gap-1">
+                        {["white", "yellow", "cyan", "green", "pink"].map((color) => {
+                          const colorMap: Record<string, string> = { white: "#fff", yellow: "#fbbf24", cyan: "#22d3ee", green: "#22c55e", pink: "#ec4899" };
+                          return (
+                            <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, primary_color: color }))}
+                              className={`w-5 h-5 rounded-full border ${captionOptions.primary_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
+                              style={{ backgroundColor: colorMap[color] }} />
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-zinc-500 mb-1">Highlight</label>
+                      <div className="flex gap-1">
+                        {["yellow", "cyan", "green", "orange", "pink"].map((color) => {
+                          const colorMap: Record<string, string> = { yellow: "#fbbf24", cyan: "#22d3ee", green: "#22c55e", orange: "#f97316", pink: "#ec4899" };
+                          return (
+                            <button key={color} onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}
+                              className={`w-5 h-5 rounded-full border ${captionOptions.highlight_color === color ? "border-purple-500 scale-110" : "border-zinc-600"}`}
+                              style={{ backgroundColor: colorMap[color] }} />
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Text Style */}
+                  {/* Animation Row */}
                   <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Text Style</label>
-                    <div className="flex gap-2">
+                    <label className="block text-xs text-zinc-500 mb-1">Effect</label>
+                    <div className="flex gap-1">
                       {([
-                        { value: "normal", label: "Normal" },
-                        { value: "uppercase", label: "UPPERCASE" },
-                        { value: "capitalize", label: "Capitalize" }
-                      ] as const).map((style) => (
-                        <button
-                          key={style.value}
-                          onClick={() => setCaptionOptions(prev => ({ ...prev, text_style: style.value }))}
-                          className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${captionOptions.text_style === style.value
-                              ? "bg-purple-600 text-white"
-                              : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
-                            }`}
-                        >
-                          {style.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Animation Style */}
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Highlight Effect</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([
-                        { value: "scale", label: "Scale", icon: "↗" },
-                        { value: "color", label: "Color Only", icon: "🎨" },
-                        { value: "both", label: "Scale + Color", icon: "✨" },
-                        { value: "bounce", label: "Bounce", icon: "⬆" },
-                        { value: "glow", label: "Glow", icon: "💫" }
+                        { value: "scale", label: "Scale" },
+                        { value: "color", label: "Color" },
+                        { value: "both", label: "Both" },
+                        { value: "bounce", label: "Bounce" },
+                        { value: "glow", label: "Glow" }
                       ] as const).map((anim) => (
                         <button
                           key={anim.value}
                           onClick={() => setCaptionOptions(prev => ({ ...prev, animation_style: anim.value }))}
-                          className={`px-2 py-2 text-xs rounded-lg transition-colors flex flex-col items-center gap-1 ${captionOptions.animation_style === anim.value
-                              ? "bg-purple-600 text-white"
-                              : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
-                            }`}
+                          className={`flex-1 px-1 py-1 text-xs rounded transition-colors ${captionOptions.animation_style === anim.value ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400"}`}
                         >
-                          <span>{anim.icon}</span>
-                          <span>{anim.label}</span>
+                          {anim.label}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Text Color */}
+                  {/* Scale Slider */}
                   <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Text Color</label>
-                    <div className="flex gap-2 flex-wrap">
-                      {["white", "yellow", "cyan", "green", "orange", "pink", "red", "blue", "purple"].map((color) => {
-                        const colorMap: Record<string, string> = {
-                          white: "#ffffff", yellow: "#fbbf24", cyan: "#22d3ee",
-                          green: "#22c55e", orange: "#f97316", pink: "#ec4899",
-                          red: "#ef4444", blue: "#3b82f6", purple: "#a855f7"
-                        };
-                        return (
-                          <button
-                            key={color}
-                            onClick={() => setCaptionOptions(prev => ({ ...prev, primary_color: color }))}
-                            className={`w-8 h-8 rounded-full border-2 transition-all ${captionOptions.primary_color === color
-                                ? "border-purple-500 scale-110"
-                                : "border-zinc-600 hover:border-zinc-500"
-                              }`}
-                            style={{ backgroundColor: colorMap[color] }}
-                            title={color}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Highlight Color */}
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">Highlight Color</label>
-                    <div className="flex gap-2 flex-wrap">
-                      {["yellow", "cyan", "green", "orange", "pink", "red", "blue", "purple", "white"].map((color) => {
-                        const colorMap: Record<string, string> = {
-                          white: "#ffffff", yellow: "#fbbf24", cyan: "#22d3ee",
-                          green: "#22c55e", orange: "#f97316", pink: "#ec4899",
-                          red: "#ef4444", blue: "#3b82f6", purple: "#a855f7"
-                        };
-                        return (
-                          <button
-                            key={color}
-                            onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}
-                            className={`w-8 h-8 rounded-full border-2 transition-all ${captionOptions.highlight_color === color
-                                ? "border-purple-500 scale-110"
-                                : "border-zinc-600 hover:border-zinc-500"
-                              }`}
-                            style={{ backgroundColor: colorMap[color] }}
-                            title={color}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Highlight Scale */}
-                  <div>
-                    <label className="block text-sm text-zinc-400 mb-2">
-                      Highlight Size: {Math.round(captionOptions.highlight_scale * 100)}%
-                    </label>
-                    <input
-                      type="range"
-                      min="100"
-                      max="200"
-                      step="5"
-                      value={captionOptions.highlight_scale * 100}
+                    <label className="block text-xs text-zinc-500 mb-1">Scale: {Math.round(captionOptions.highlight_scale * 100)}%</label>
+                    <input type="range" min="100" max="180" step="10" value={captionOptions.highlight_scale * 100}
                       onChange={(e) => setCaptionOptions(prev => ({ ...prev, highlight_scale: parseInt(e.target.value) / 100 }))}
-                      className="w-full accent-purple-500"
-                    />
+                      className="w-full accent-purple-500 h-1" />
                   </div>
 
-                  {/* Text Effects Section */}
-                  <div className="pt-3 border-t border-zinc-700">
-                    <h4 className="text-sm font-medium text-white mb-3">Text Effects</h4>
-
-                    {/* Outline */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm text-zinc-400">Text Outline</span>
+                  {/* Effects Toggles - Compact Row */}
+                  <div className="flex gap-2 pt-2 border-t border-zinc-700">
+                    {[
+                      { key: "outline_enabled", label: "Outline" },
+                      { key: "shadow_enabled", label: "Shadow" },
+                      { key: "background_enabled", label: "BG Box" }
+                    ].map((effect) => (
                       <button
-                        onClick={() => setCaptionOptions(prev => ({ ...prev, outline_enabled: !prev.outline_enabled }))}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${captionOptions.outline_enabled ? "bg-purple-600" : "bg-zinc-600"
-                          }`}
+                        key={effect.key}
+                        onClick={() => setCaptionOptions(prev => ({ ...prev, [effect.key]: !prev[effect.key as keyof CaptionOptions] }))}
+                        className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${captionOptions[effect.key as keyof CaptionOptions] ? "bg-purple-600 text-white" : "bg-zinc-700 text-zinc-400"}`}
                       >
-                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${captionOptions.outline_enabled ? "translate-x-5" : "translate-x-1"
-                          }`} />
+                        {effect.label}
                       </button>
-                    </div>
-                    {captionOptions.outline_enabled && (
-                      <div className="ml-4 mb-3 space-y-2">
-                        <div className="flex gap-2 items-center">
-                          <span className="text-xs text-zinc-500 w-16">Color:</span>
-                          <div className="flex gap-1">
-                            {["black", "white", "gray"].map((color) => (
-                              <button
-                                key={color}
-                                onClick={() => setCaptionOptions(prev => ({ ...prev, outline_color: color }))}
-                                className={`w-6 h-6 rounded border ${captionOptions.outline_color === color ? "border-purple-500" : "border-zinc-600"
-                                  }`}
-                                style={{ backgroundColor: color === "gray" ? "#6b7280" : color }}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <div className="flex gap-2 items-center">
-                          <span className="text-xs text-zinc-500 w-16">Width:</span>
-                          <input
-                            type="range"
-                            min="1"
-                            max="6"
-                            value={captionOptions.outline_width}
-                            onChange={(e) => setCaptionOptions(prev => ({ ...prev, outline_width: parseInt(e.target.value) }))}
-                            className="flex-1 accent-purple-500"
-                          />
-                          <span className="text-xs text-zinc-500 w-6">{captionOptions.outline_width}px</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Shadow */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm text-zinc-400">Drop Shadow</span>
-                      <button
-                        onClick={() => setCaptionOptions(prev => ({ ...prev, shadow_enabled: !prev.shadow_enabled }))}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${captionOptions.shadow_enabled ? "bg-purple-600" : "bg-zinc-600"
-                          }`}
-                      >
-                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${captionOptions.shadow_enabled ? "translate-x-5" : "translate-x-1"
-                          }`} />
-                      </button>
-                    </div>
-
-                    {/* Background */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm text-zinc-400">Background Box</span>
-                      <button
-                        onClick={() => setCaptionOptions(prev => ({ ...prev, background_enabled: !prev.background_enabled }))}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${captionOptions.background_enabled ? "bg-purple-600" : "bg-zinc-600"
-                          }`}
-                      >
-                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${captionOptions.background_enabled ? "translate-x-5" : "translate-x-1"
-                          }`} />
-                      </button>
-                    </div>
-                    {captionOptions.background_enabled && (
-                      <div className="ml-4 space-y-2">
-                        <div className="flex gap-2 items-center">
-                          <span className="text-xs text-zinc-500 w-16">Opacity:</span>
-                          <input
-                            type="range"
-                            min="20"
-                            max="100"
-                            value={captionOptions.background_opacity}
-                            onChange={(e) => setCaptionOptions(prev => ({ ...prev, background_opacity: parseInt(e.target.value) }))}
-                            className="flex-1 accent-purple-500"
-                          />
-                          <span className="text-xs text-zinc-500 w-10">{captionOptions.background_opacity}%</span>
-                        </div>
-                      </div>
-                    )}
+                    ))}
                   </div>
+
+                  {/* Outline Options */}
+                  {captionOptions.outline_enabled && (
+                    <div className="flex gap-2 items-center pl-2">
+                      <span className="text-xs text-zinc-500">Color:</span>
+                      {["black", "white"].map((c) => (
+                        <button key={c} onClick={() => setCaptionOptions(prev => ({ ...prev, outline_color: c }))}
+                          className={`w-4 h-4 rounded border ${captionOptions.outline_color === c ? "border-purple-500" : "border-zinc-600"}`}
+                          style={{ backgroundColor: c }} />
+                      ))}
+                      <span className="text-xs text-zinc-500 ml-2">Width:</span>
+                      <input type="range" min="1" max="5" value={captionOptions.outline_width}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, outline_width: parseInt(e.target.value) }))}
+                        className="w-16 accent-purple-500 h-1" />
+                    </div>
+                  )}
+
+                  {/* Background Options */}
+                  {captionOptions.background_enabled && (
+                    <div className="flex gap-2 items-center pl-2">
+                      <span className="text-xs text-zinc-500">Opacity:</span>
+                      <input type="range" min="20" max="100" value={captionOptions.background_opacity}
+                        onChange={(e) => setCaptionOptions(prev => ({ ...prev, background_opacity: parseInt(e.target.value) }))}
+                        className="flex-1 accent-purple-500 h-1" />
+                      <span className="text-xs text-zinc-500">{captionOptions.background_opacity}%</span>
+                    </div>
+                  )}
                 </div>
               )}
 
               {!captionOptions.enabled && (
-                <p className="text-sm text-zinc-500">
-                  Enable to add animated word-by-word captions that highlight as you speak.
-                </p>
+                <p className="text-xs text-zinc-500">Enable to add animated captions.</p>
               )}
             </div>
 
