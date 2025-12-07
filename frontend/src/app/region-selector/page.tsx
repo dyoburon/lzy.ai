@@ -811,6 +811,7 @@ export default function RegionSelectorPage() {
               {captionOptions.enabled && (
                 <div className="space-y-2">
                   {/* Caption Preview - Phone mockup */}
+                  {/* Output is 1080x1920, preview is 120px wide = 9x scale factor */}
                   <div className="flex justify-center mb-3">
                     <div
                       className="relative bg-zinc-900 rounded-lg overflow-hidden border border-zinc-600"
@@ -822,17 +823,28 @@ export default function RegionSelectorPage() {
                       </div>
                       {/* Caption overlay at position */}
                       <div
-                        className="absolute left-0 right-0 flex justify-center px-2 pointer-events-none"
+                        className="absolute left-0 right-0 flex justify-center px-1 pointer-events-none"
                         style={{ top: `${captionOptions.position_y}%`, transform: "translateY(-50%)" }}
                       >
                         <div
-                          className="px-2 py-1 rounded"
+                          className="px-1 py-0.5 rounded"
                           style={{
-                            backgroundColor: captionOptions.background_enabled ? `rgba(0,0,0,${captionOptions.background_opacity / 100})` : 'transparent'
+                            backgroundColor: captionOptions.background_enabled
+                              ? (() => {
+                                  // Parse hex color to rgba
+                                  const hex = captionOptions.background_color.replace('#', '');
+                                  const r = parseInt(hex.substring(0, 2), 16);
+                                  const g = parseInt(hex.substring(2, 4), 16);
+                                  const b = parseInt(hex.substring(4, 6), 16);
+                                  return `rgba(${r},${g},${b},${captionOptions.background_opacity / 100})`;
+                                })()
+                              : 'transparent'
                           }}
                         >
-                          <span className="flex justify-center flex-wrap" style={{ gap: `${Math.max(1, captionOptions.word_spacing / 4)}px` }}>
+                          {/* Scale factor: 1080/120 = 9, so divide all pixel values by 9 */}
+                          <span className="flex justify-center flex-wrap" style={{ gap: `${Math.max(1, Math.round(captionOptions.word_spacing / 9))}px` }}>
                             {(() => {
+                              const SCALE = 9; // 1080px output / 120px preview
                               const fontMap: Record<string, string> = {
                                 "Arial": "Arial, sans-serif",
                                 "Arial Black": "'Arial Black', sans-serif",
@@ -857,8 +869,9 @@ export default function RegionSelectorPage() {
                                 const isActive = idx === previewWordIndex % captionOptions.words_per_group;
                                 const textColor = isActive ? captionOptions.highlight_color : captionOptions.primary_color;
                                 const displayText = captionOptions.text_style === "uppercase" ? word.toUpperCase() : word;
-                                // Scale font size for preview (divide by ~5 for phone mockup size)
-                                const previewFontSize = Math.max(8, Math.round(captionOptions.font_size / 5));
+                                // Scale font size for preview
+                                const previewFontSize = Math.max(6, Math.round(captionOptions.font_size / SCALE));
+                                const previewOutlineWidth = Math.max(0.3, captionOptions.outline_width / SCALE);
                                 return (
                                   <span
                                     key={idx}
@@ -870,11 +883,11 @@ export default function RegionSelectorPage() {
                                       color: textColor,
                                       transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
                                       textShadow: captionOptions.shadow_enabled
-                                        ? `1px 1px 2px ${captionOptions.shadow_color}`
+                                        ? `1px 1px 1px ${captionOptions.shadow_color}`
                                         : captionOptions.animation_style === "glow" && isActive
-                                          ? `0 0 5px ${textColor}, 0 0 10px ${textColor}`
+                                          ? `0 0 3px ${textColor}, 0 0 6px ${textColor}`
                                           : "none",
-                                      WebkitTextStroke: captionOptions.outline_enabled ? `${Math.max(0.5, captionOptions.outline_width / 3)}px ${captionOptions.outline_color}` : "0",
+                                      WebkitTextStroke: captionOptions.outline_enabled ? `${previewOutlineWidth}px ${captionOptions.outline_color}` : "0",
                                     }}
                                   >
                                     {displayText}
