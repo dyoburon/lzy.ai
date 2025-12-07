@@ -327,11 +327,10 @@ export default function BestOfPage() {
                 />
                 <div
                   onClick={() => !uploading && fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                    uploading
-                      ? "border-zinc-700 cursor-not-allowed"
-                      : "border-zinc-600 cursor-pointer hover:border-purple-500"
-                  }`}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${uploading
+                    ? "border-zinc-700 cursor-not-allowed"
+                    : "border-zinc-600 cursor-pointer hover:border-purple-500"
+                    }`}
                 >
                   {uploading ? (
                     <div>
@@ -427,6 +426,7 @@ export default function BestOfPage() {
                       onChange={(e) => setAvgClipLength(parseInt(e.target.value))}
                       className="w-full px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500"
                     >
+                      <option value={15}>~15 seconds</option>
                       <option value={30}>~30 seconds</option>
                       <option value={60}>~1 minute</option>
                       <option value={90}>~1.5 minutes</option>
