@@ -60,6 +60,7 @@ Separate and remix audio tracks.
 
 **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS
 
+
 ## Quick Start
 
 ### Prerequisites
