@@ -38,6 +38,30 @@ interface CaptionOptions {
   position_y: number;
 }
 
+interface SeparatedAudio {
+  vocalsAudio: string;
+  musicAudio: string;
+  originalVideoData: string;
+}
+
+interface CustomAudioCache {
+  audioData: string;
+  audioName: string;
+  preApplyVideoData?: string;
+  preApplyFileSize?: number;
+  isApplied: boolean;
+}
+
+interface AudioState {
+  separating: boolean;
+  processing: boolean;
+  separatedCache: SeparatedAudio | null;
+  customAudioCache: CustomAudioCache | null;
+  vocalsVolume: number;
+  musicVolume: number;
+  customVolume: number;
+}
+
 const colorMap: Record<string, string> = {
   white: "#FFFFFF",
   yellow: "#FFFF00",
@@ -85,6 +109,51 @@ function MissingEnvMessage({ missingVar }: { missingVar: string }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
       </Link>
+    </div>
+  );
+}
+
+function VolumeSlider({
+  label,
+  value,
+  onChange,
+  disabled,
+  color = "purple",
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+  color?: string;
+}) {
+  const sliderColorMap: Record<string, string> = {
+    purple: "#a855f7",
+    green: "#22c55e",
+    blue: "#3b82f6",
+    orange: "#f97316",
+  };
+  const activeColor = sliderColorMap[color] || sliderColorMap.purple;
+
+  return (
+    <div className={`space-y-2 ${disabled ? "opacity-40" : ""}`}>
+      <div className="flex justify-between text-sm">
+        <span className="text-zinc-400">{label}</span>
+        <span className="text-white font-mono">{Math.round(value * 100)}%</span>
+      </div>
+      <input
+        type="range"
+        min="0"
+        max="200"
+        value={value * 100}
+        onChange={(e) => onChange(parseInt(e.target.value) / 100)}
+        disabled={disabled}
+        className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-zinc-700"
+        style={{
+          background: disabled
+            ? "#3f3f46"
+            : `linear-gradient(to right, ${activeColor} 0%, ${activeColor} ${value * 50}%, #3f3f46 ${value * 50}%, #3f3f46 100%)`,
+        }}
+      />
     </div>
   );
 }
@@ -137,7 +206,19 @@ export default function BestOfPage() {
   const [error, setError] = useState("");
   const [missingEnv, setMissingEnv] = useState<string | null>(null);
 
+  // Audio mixer state
+  const [audio, setAudio] = useState<AudioState>({
+    separating: false,
+    processing: false,
+    separatedCache: null,
+    customAudioCache: null,
+    vocalsVolume: 1.0,
+    musicVolume: 1.0,
+    customVolume: 0.5,
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
 
@@ -174,6 +255,7 @@ export default function BestOfPage() {
       }
     };
     checkConfig();
+
   }, [API_URL]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -373,6 +455,178 @@ export default function BestOfPage() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  // Audio mixer handlers
+  const handleSeparateAudio = async () => {
+    if (!compilation?.video_data) return;
+
+    setAudio((prev) => ({ ...prev, separating: true }));
+
+    try {
+      const response = await fetch(`${API_URL}/api/audio/separate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_data: compilation.video_data }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        alert(`Separation failed: ${data.error}`);
+      } else {
+        setAudio((prev) => ({
+          ...prev,
+          separatedCache: {
+            vocalsAudio: data.vocals,
+            musicAudio: data.music,
+            originalVideoData: compilation.video_data,
+          },
+        }));
+      }
+    } catch {
+      alert("Failed to separate audio. Make sure the backend is running.");
+    } finally {
+      setAudio((prev) => ({ ...prev, separating: false }));
+    }
+  };
+
+  const handleCustomAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      setAudio((prev) => ({
+        ...prev,
+        customAudioCache: {
+          audioData: base64,
+          audioName: file.name,
+          isApplied: false,
+        },
+      }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleRevertCustomAudio = () => {
+    const customAudio = audio.customAudioCache;
+    if (!customAudio) return;
+
+    if (customAudio.isApplied && customAudio.preApplyVideoData && compilation) {
+      // Revert video to pre-apply state
+      const newCompilation = {
+        ...compilation,
+        video_data: customAudio.preApplyVideoData,
+        file_size: customAudio.preApplyFileSize || compilation.file_size,
+      };
+      setCompilation(newCompilation);
+
+      // Update video URL
+      if (compilationUrl) URL.revokeObjectURL(compilationUrl);
+      const blob = base64ToBlob(customAudio.preApplyVideoData);
+      setCompilationUrl(URL.createObjectURL(blob));
+
+      // Mark as not applied but keep audio
+      setAudio((prev) => ({
+        ...prev,
+        customAudioCache: {
+          audioData: customAudio.audioData,
+          audioName: customAudio.audioName,
+          isApplied: false,
+        },
+      }));
+    } else {
+      // Not applied, just remove from cache
+      setAudio((prev) => ({ ...prev, customAudioCache: null }));
+    }
+  };
+
+  const handleApplyAudioChanges = async () => {
+    if (!compilation?.video_data) return;
+
+    const hasCustomAudio = !!audio.customAudioCache;
+    const hasSeparatedAudio = !!audio.separatedCache;
+
+    if (!hasSeparatedAudio && !hasCustomAudio) {
+      alert("Separate audio first or upload custom audio to apply changes.");
+      return;
+    }
+
+    setAudio((prev) => ({ ...prev, processing: true }));
+
+    const preApplyVideoData = compilation.video_data;
+    const preApplyFileSize = compilation.file_size;
+
+    try {
+      const videoDataToUse = audio.separatedCache?.originalVideoData || compilation.video_data;
+
+      const response = await fetch(`${API_URL}/api/audio/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_data: videoDataToUse,
+          audio_options: {
+            separate: hasSeparatedAudio,
+            use_vocals: audio.vocalsVolume > 0,
+            use_music: audio.musicVolume > 0,
+            vocals_volume: audio.vocalsVolume,
+            music_volume: audio.musicVolume,
+            vocals_audio: audio.separatedCache?.vocalsAudio,
+            music_audio: audio.separatedCache?.musicAudio,
+            custom_audio: audio.customAudioCache?.audioData,
+            custom_audio_volume: audio.customVolume,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        alert(`Processing failed: ${data.error}`);
+      } else {
+        // Update compilation with new video
+        setCompilation((prev) => prev ? {
+          ...prev,
+          video_data: data.video_data,
+          file_size: data.file_size,
+        } : null);
+
+        // Update video URL
+        if (compilationUrl) URL.revokeObjectURL(compilationUrl);
+        const blob = base64ToBlob(data.video_data);
+        setCompilationUrl(URL.createObjectURL(blob));
+
+        // Update cache state
+        if (hasCustomAudio) {
+          setAudio((prev) => ({
+            ...prev,
+            vocalsVolume: 1.0,
+            musicVolume: 1.0,
+            customVolume: 0.5,
+            customAudioCache: prev.customAudioCache ? {
+              ...prev.customAudioCache,
+              isApplied: true,
+              preApplyVideoData: preApplyVideoData,
+              preApplyFileSize: preApplyFileSize,
+            } : null,
+          }));
+        } else {
+          setAudio((prev) => ({
+            ...prev,
+            vocalsVolume: 1.0,
+            musicVolume: 1.0,
+            customVolume: 0.5,
+          }));
+        }
+      }
+    } catch {
+      alert("Failed to process audio. Make sure the backend is running.");
+    } finally {
+      setAudio((prev) => ({ ...prev, processing: false }));
+    }
   };
 
   const formatDuration = (seconds: number) => {
@@ -975,6 +1229,17 @@ export default function BestOfPage() {
                         setVideoFile(null);
                         setUploadedVideoPath("");
                         setUrl("");
+                        setCustomTranscript("");
+                        // Reset audio state
+                        setAudio({
+                          separating: false,
+                          processing: false,
+                          separatedCache: null,
+                          customAudioCache: null,
+                          vocalsVolume: 1.0,
+                          musicVolume: 1.0,
+                          customVolume: 0.5,
+                        });
                       }}
                       className="px-6 py-3 bg-zinc-700 hover:bg-zinc-600 text-white font-medium rounded-lg transition-colors"
                     >
@@ -1003,6 +1268,235 @@ export default function BestOfPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                {/* Audio Controls Section */}
+                <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-xl">
+                  <div className="flex items-center gap-3 mb-6">
+                    <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    </svg>
+                    <h2 className="text-xl font-bold text-white">Audio Controls</h2>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-8">
+                    {/* Left Column: Separation & Volume Controls */}
+                    <div className="space-y-6">
+                      {/* AI Separation */}
+                      <div>
+                        <h3 className="text-white font-medium mb-3 flex items-center gap-2">
+                          <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          AI Audio Separation
+                        </h3>
+
+                        {audio.separatedCache ? (
+                          <div className="space-y-3">
+                            <div className="p-3 bg-green-900/30 border border-green-700/50 rounded-lg text-green-400 text-sm flex items-center gap-2">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Audio separated! Adjust volumes below.
+                            </div>
+
+                            {/* Preview players */}
+                            <div className="p-3 bg-zinc-900/50 rounded-lg space-y-2">
+                              <p className="text-xs text-zinc-500 mb-2">Preview separated audio:</p>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-green-400 w-16">Vocals:</span>
+                                <audio controls className="h-7 flex-1" src={`data:audio/mp3;base64,${audio.separatedCache.vocalsAudio}`} />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-blue-400 w-16">Music:</span>
+                                <audio controls className="h-7 flex-1" src={`data:audio/mp3;base64,${audio.separatedCache.musicAudio}`} />
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleSeparateAudio}
+                            disabled={audio.separating}
+                            className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                          >
+                            {audio.separating ? (
+                              <>
+                                <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Separating... (this takes ~1 min)
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                </svg>
+                                Separate Vocals &amp; Music
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Volume Controls */}
+                      <div className="space-y-4">
+                        <h3 className="text-white font-medium flex items-center gap-2">
+                          <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          </svg>
+                          Volume Levels
+                        </h3>
+
+                        <div className="p-4 bg-zinc-900/50 rounded-lg space-y-5">
+                          <VolumeSlider
+                            label="Vocals / Speech"
+                            value={audio.vocalsVolume}
+                            onChange={(v) => setAudio((prev) => ({ ...prev, vocalsVolume: v }))}
+                            disabled={!audio.separatedCache}
+                            color="green"
+                          />
+                          <VolumeSlider
+                            label="Background Music"
+                            value={audio.musicVolume}
+                            onChange={(v) => setAudio((prev) => ({ ...prev, musicVolume: v }))}
+                            disabled={!audio.separatedCache}
+                            color="blue"
+                          />
+                          {!audio.separatedCache && (
+                            <p className="text-xs text-zinc-500 text-center">
+                              Separate audio first to adjust individual volumes
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Column: Custom Audio & Apply */}
+                    <div className="space-y-6">
+                      {/* Custom Audio Upload */}
+                      <div>
+                        <h3 className="text-white font-medium mb-3 flex items-center gap-2">
+                          <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                          </svg>
+                          Add Custom Audio
+                        </h3>
+
+                        <input
+                          ref={audioInputRef}
+                          type="file"
+                          accept="audio/*"
+                          onChange={handleCustomAudioUpload}
+                          className="hidden"
+                        />
+
+                        {audio.customAudioCache ? (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between p-3 bg-zinc-900/50 rounded-lg">
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <svg className="w-5 h-5 text-orange-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                                </svg>
+                                <span className="text-white text-sm truncate">{audio.customAudioCache.audioName}</span>
+                                {audio.customAudioCache.isApplied && (
+                                  <span className="px-1.5 py-0.5 bg-green-900/50 text-green-400 text-xs rounded flex-shrink-0">
+                                    Applied
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                onClick={handleRevertCustomAudio}
+                                className="p-1 text-zinc-400 hover:text-red-400 transition-colors flex-shrink-0"
+                                title={audio.customAudioCache.isApplied ? "Remove from video (keeps audio for re-apply)" : "Remove audio"}
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+
+                            {/* Audio preview player */}
+                            <div className="p-3 bg-zinc-900/50 rounded-lg">
+                              <p className="text-xs text-zinc-500 mb-2">Preview:</p>
+                              <audio
+                                controls
+                                className="w-full h-8"
+                                src={`data:audio/mp3;base64,${audio.customAudioCache.audioData}`}
+                              />
+                            </div>
+
+                            <div className="p-4 bg-zinc-900/50 rounded-lg">
+                              <VolumeSlider
+                                label="Custom Audio Volume"
+                                value={audio.customVolume}
+                                onChange={(v) => setAudio((prev) => ({ ...prev, customVolume: v }))}
+                                color="orange"
+                              />
+                            </div>
+
+                            {/* Upload different button */}
+                            <button
+                              onClick={() => {
+                                if (audio.customAudioCache?.isApplied) {
+                                  handleRevertCustomAudio();
+                                }
+                                audioInputRef.current?.click();
+                              }}
+                              className="w-full px-3 py-2 border border-zinc-600 hover:border-orange-500 text-zinc-400 hover:text-orange-400 rounded-lg transition-colors text-sm"
+                            >
+                              Upload Different Audio
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => audioInputRef.current?.click()}
+                            className="w-full px-4 py-8 border-2 border-dashed border-zinc-600 hover:border-orange-500 text-zinc-400 hover:text-orange-400 rounded-lg transition-colors flex flex-col items-center justify-center gap-2"
+                          >
+                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <span>Upload background music</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Apply Button */}
+                      <button
+                        onClick={handleApplyAudioChanges}
+                        disabled={audio.processing || audio.separating || (!audio.separatedCache && !audio.customAudioCache)}
+                        className="w-full px-6 py-4 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-lg"
+                      >
+                        {audio.processing ? (
+                          <>
+                            <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Applying Changes...
+                          </>
+                        ) : audio.customAudioCache?.isApplied ? (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Re-apply with New Settings
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Apply Audio Changes
+                          </>
+                        )}
+                      </button>
+
+                      {!audio.separatedCache && !audio.customAudioCache && (
+                        <p className="text-xs text-zinc-500 text-center">
+                          Separate audio or upload custom audio to enable this button
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
 

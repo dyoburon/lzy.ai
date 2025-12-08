@@ -982,7 +982,7 @@ export default function RegionSelectorPage() {
                       </button>
                     ))}
                     <span className="text-zinc-600 mx-1">|</span>
-                    {(["scale", "color", "both", "glow"] as const).map((anim) => (
+                    {(["scale", "color", "both"] as const).map((anim) => (
                       <button
                         key={anim}
                         onClick={() => setCaptionOptions(prev => ({ ...prev, animation_style: anim }))}
