@@ -132,7 +132,7 @@ async def check_youtube_live():
                 video_title = video_data['snippet']['title']
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
 
-                message = f"@everyone 🔴 **I am now LIVE!**\n\n**{video_title}**\n{video_url}"
+                message = f"🔴 **I am now LIVE!**\n\n**{video_title}**\n{video_url}"
 
                 await send_youtube_notification(message)
                 notified_livestreams.add(video_id)

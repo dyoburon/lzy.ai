@@ -100,14 +100,15 @@ Here is the transcript:
 The creator has given you these instructions about what they're looking for:
 {custom_prompt}
 
-Find {num_clips} segments that match their criteria. Each clip should be {clip_length_str} long (total ~{target_duration_minutes} minutes).
+Find {num_clips} segments that match their criteria. Each clip MUST be EXACTLY {clip_length_str} long (total ~{target_duration_minutes} minutes).
 
 IMPORTANT RULES:
-1. Each segment should be self-contained and make sense on its own
-2. Segments should have clear beginnings and endings (don't cut mid-sentence)
-3. Order the segments in a way that flows well for a compilation
-4. Prefer moments with high energy, humor, insights, or memorable quotes
-5. Each clip should be approximately {clip_length_str} - not too short, not too long
+
+1. Prefer to cut at natural pauses (gaps of 1.5+ seconds between dialogue) rather than mid-sentence
+2. Each clip should be {clip_length_str} long
+3. Each segment should be self-contained and make sense on its own
+4. Order the segments in a way that flows well for a compilation
+5. Prefer moments with high energy, humor, insights, or memorable quotes
 
 Return your response as a JSON array with this exact format:
 [
@@ -127,7 +128,7 @@ Return ONLY the JSON array, no other text or markdown formatting."""
 Here is the transcript:
 {transcript_text}
 
-Find the {num_clips} BEST moments for a highlight compilation. Each clip should be {clip_length_str} long (total ~{target_duration_minutes} minutes).
+Find the {num_clips} BEST moments for a highlight compilation. Each clip MUST be EXACTLY {clip_length_str} long (total ~{target_duration_minutes} minutes).
 
 Look for:
 - Funniest moments
@@ -138,11 +139,12 @@ Look for:
 - Audience interaction highlights
 
 IMPORTANT RULES:
-1. Each segment should be self-contained and make sense on its own
-2. Don't cut mid-sentence or mid-thought
-3. Order segments to create good flow (don't just use chronological order)
-4. Vary the types of moments (mix funny with serious, etc.)
-5. Each clip should be approximately {clip_length_str} - aim for this length consistently
+
+1. Prefer to cut at natural pauses (gaps of 1.5+ seconds between dialogue) rather than mid-sentence
+2. Each clip should be {clip_length_str} long ({avg_clip_length_seconds} seconds)
+3. Each segment should be self-contained and make sense on its own
+4. Order segments to create good flow (don't just use chronological order)
+5. Vary the types of moments (mix funny with serious, etc.)
 
 Return your response as a JSON array with this exact format:
 [
