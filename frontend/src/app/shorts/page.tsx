@@ -91,6 +91,9 @@ export default function ShortsPage() {
   const [selectedMoments, setSelectedMoments] = useState<Set<number>>(new Set());
   const [clipping, setClipping] = useState(false);
 
+  // Drag and drop state
+  const [isDragging, setIsDragging] = useState(false);
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
 
   // Navigate to region selector with clips
@@ -125,14 +128,24 @@ export default function ShortsPage() {
     checkConfig();
   }, [API_URL]);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Shared upload function for both click and drag-drop
+  const uploadFile = async (file: File) => {
+    // Check file type - be lenient since MIME types can be unreliable
+    const videoExtensions = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.m4v', '.wmv', '.flv'];
+    const fileName = file.name.toLowerCase();
+    const hasVideoExtension = videoExtensions.some(ext => fileName.endsWith(ext));
+    const hasVideoMimeType = file.type.startsWith('video/');
+
+    if (!hasVideoExtension && !hasVideoMimeType) {
+      setError(`Please select a video file. Got: ${file.name} (${file.type || 'unknown type'})`);
+      return;
+    }
 
     setVideoFile(file);
     setUploading(true);
     setUploadProgress(0);
     setError("");
+    setUploadedVideoPath(""); // Clear previous upload
 
     try {
       const formData = new FormData();
@@ -149,28 +162,88 @@ export default function ShortsPage() {
 
       xhr.onload = () => {
         if (xhr.status === 200) {
-          const data = JSON.parse(xhr.responseText);
-          setUploadedVideoPath(data.video_path);
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.video_path) {
+              setUploadedVideoPath(data.video_path);
+            } else {
+              setError("Upload succeeded but no video path returned");
+              setVideoFile(null);
+            }
+          } catch {
+            setError("Failed to parse server response");
+            setVideoFile(null);
+          }
         } else {
-          const data = JSON.parse(xhr.responseText);
-          setError(data.error || "Upload failed");
+          try {
+            const data = JSON.parse(xhr.responseText);
+            setError(data.error || `Upload failed with status ${xhr.status}`);
+          } catch {
+            setError(`Upload failed with status ${xhr.status}`);
+          }
           setVideoFile(null);
         }
         setUploading(false);
       };
 
       xhr.onerror = () => {
-        setError("Upload failed. Make sure the backend is running.");
+        setError("Upload failed. Make sure the backend is running on " + API_URL);
+        setVideoFile(null);
+        setUploading(false);
+      };
+
+      xhr.ontimeout = () => {
+        setError("Upload timed out. The file may be too large.");
         setVideoFile(null);
         setUploading(false);
       };
 
       xhr.open("POST", `${API_URL}/api/shorts/upload`);
+      xhr.timeout = 300000; // 5 minute timeout for large files
       xhr.send(formData);
-    } catch {
-      setError("Failed to upload video");
+    } catch (err) {
+      setError(`Failed to upload video: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setVideoFile(null);
       setUploading(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    uploadFile(file);
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!uploading) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (uploading) return;
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      uploadFile(files[0]);
     }
   };
 
@@ -520,9 +593,15 @@ export default function ShortsPage() {
                 />
                 <div
                   onClick={() => !uploading && fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                  onDragEnter={handleDragEnter}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-all ${
                     uploading
                       ? "border-zinc-700 cursor-not-allowed"
+                      : isDragging
+                      ? "border-purple-500 bg-purple-500/10 scale-[1.02]"
                       : "border-zinc-600 cursor-pointer hover:border-purple-500"
                   }`}
                 >
@@ -541,6 +620,15 @@ export default function ShortsPage() {
                         />
                       </div>
                     </div>
+                  ) : isDragging ? (
+                    <div>
+                      <div className="text-purple-400 mb-2">
+                        <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                      </div>
+                      <p className="text-purple-400 font-medium">Drop your video here</p>
+                    </div>
                   ) : uploadedVideoPath ? (
                     <div>
                       <div className="text-green-400 mb-2">
@@ -552,7 +640,7 @@ export default function ShortsPage() {
                       <p className="text-zinc-500 text-sm mt-1">
                         {videoFile && (videoFile.size / (1024 * 1024)).toFixed(2)} MB - Uploaded
                       </p>
-                      <p className="text-zinc-600 text-xs mt-2">Click to change</p>
+                      <p className="text-zinc-600 text-xs mt-2">Click or drag to change</p>
                     </div>
                   ) : (
                     <div>
@@ -561,8 +649,8 @@ export default function ShortsPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                         </svg>
                       </div>
-                      <p className="text-zinc-400">Click to select video file</p>
-                      <p className="text-zinc-600 text-sm mt-1">MP4, MOV, WebM, etc.</p>
+                      <p className="text-zinc-400">Drag and drop your video here</p>
+                      <p className="text-zinc-600 text-sm mt-1">or click to browse • MP4, MOV, WebM, etc.</p>
                     </div>
                   )}
                 </div>

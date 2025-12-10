@@ -69,15 +69,16 @@ def get_transcript_for_moments(video_url):
         return {"error": str(e)}
 
 
-def detect_interesting_moments(transcript_text, num_clips=3, max_duration_seconds=120, custom_prompt=None):
+def detect_interesting_moments(transcript_text, num_clips=3, max_duration_seconds=120, custom_prompt=None, curator_mode=False):
     """
     Uses Gemini to detect the most interesting moments in a video transcript.
 
     Args:
         transcript_text: The full transcript with timestamps
-        num_clips: Number of clips to identify (1-10, default 3)
+        num_clips: Number of clips to identify (1-15 in curator mode, 1-10 otherwise)
         max_duration_seconds: Maximum duration for each clip (default 120 = 2 minutes)
         custom_prompt: Optional custom instructions to guide moment selection
+        curator_mode: If True, allows up to 15 clips for user selection
 
     Returns:
         List of moments with start/end timestamps and descriptions
@@ -85,8 +86,9 @@ def detect_interesting_moments(transcript_text, num_clips=3, max_duration_second
     if not GEMINI_API_KEY:
         return {"error": "GEMINI_API_KEY not configured"}
 
-    # Clamp num_clips to valid range
-    num_clips = max(1, min(10, num_clips))
+    # Clamp num_clips to valid range (15 max in curator mode, 10 otherwise)
+    max_clips = 15 if curator_mode else 10
+    num_clips = max(1, min(max_clips, num_clips))
 
     try:
         model = genai.GenerativeModel('gemini-2.5-pro')
@@ -320,7 +322,7 @@ def clip_all_moments(video_path, moments):
     return {"clips": results}
 
 
-def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_clips=3, custom_prompt=None):
+def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_clips=3, custom_prompt=None, curator_mode=False):
     """
     Main function to process a video for shorts.
 
@@ -328,8 +330,9 @@ def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_cl
         video_url: YouTube URL to get transcript from
         video_path: Path to the downloaded video file (optional, for clipping)
         output_dir: Directory to save clips (optional)
-        num_clips: Number of clips to identify (1-10, default 3)
+        num_clips: Number of clips to identify (1-15 in curator mode, 1-10 otherwise)
         custom_prompt: Optional custom instructions to guide moment selection
+        curator_mode: If True, allows up to 15 clips for user selection
 
     Returns:
         Dict with transcript, detected moments, and optionally clipped videos
@@ -340,7 +343,7 @@ def process_video_for_shorts(video_url, video_path=None, output_dir=None, num_cl
         return transcript_result
 
     # Step 2: Detect interesting moments using Gemini
-    moments_result = detect_interesting_moments(transcript_result['full_text'], num_clips=num_clips, custom_prompt=custom_prompt)
+    moments_result = detect_interesting_moments(transcript_result['full_text'], num_clips=num_clips, custom_prompt=custom_prompt, curator_mode=curator_mode)
     if "error" in moments_result:
         return {
             "transcript": transcript_result,
