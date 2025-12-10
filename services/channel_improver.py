@@ -177,7 +177,31 @@ OUTPUT FORMAT (JSON):
       "action": "Simple, immediately actionable improvement",
       "expected_result": "What they can expect from implementing this"
     }}
-  ]
+  ],
+  "critical_assessment": {{
+    "summary": "A direct, no-BS summary of the biggest issues holding this channel back",
+    "hard_truths": [
+      {{
+        "issue": "The core problem stated directly",
+        "why_it_matters": "Why this is hurting their channel/goal",
+        "evidence": "Specific examples from the transcript or channel context",
+        "what_to_do": "Concrete action to fix it"
+      }}
+    ],
+    "competitive_gaps": [
+      "Ways they're falling behind competitors or industry standards"
+    ],
+    "blind_spots": [
+      "Things they probably don't realize they're doing wrong"
+    ],
+    "harsh_rating": {{
+      "content_quality": 7,
+      "professionalism": 7,
+      "audience_value": 7,
+      "goal_effectiveness": 7,
+      "overall_verdict": "One sentence brutal honest verdict"
+    }}
+  }}
 }}
 
 IMPORTANT:
@@ -187,6 +211,7 @@ IMPORTANT:
 - Focus on actionable, practical advice
 - Be encouraging but honest about areas for improvement
 - If certain categories don't apply based on the transcript, provide fewer suggestions for those
+- For the critical_assessment section: BE BRUTALLY HONEST. Don't sugarcoat. The creator asked for serious critiques - give them real feedback that might be uncomfortable but will actually help them improve. Point out problems they might not want to hear about. This is the "tough love" section.
 
 Return ONLY the JSON, no other text.
 """

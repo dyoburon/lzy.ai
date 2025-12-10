@@ -35,6 +35,29 @@ interface OverallAssessment {
   goal_alignment_feedback: string;
 }
 
+interface HardTruth {
+  issue: string;
+  why_it_matters: string;
+  evidence: string;
+  what_to_do: string;
+}
+
+interface HarshRating {
+  content_quality: number;
+  professionalism: number;
+  audience_value: number;
+  goal_effectiveness: number;
+  overall_verdict: string;
+}
+
+interface CriticalAssessment {
+  summary: string;
+  hard_truths: HardTruth[];
+  competitive_gaps: string[];
+  blind_spots: string[];
+  harsh_rating: HarshRating;
+}
+
 interface AnalysisResult {
   video_id: string;
   transcript_preview: string;
@@ -52,11 +75,12 @@ interface AnalysisResult {
   audience_engagement: ImprovementCategory;
   title_suggestions: TitleSuggestions;
   quick_wins: QuickWin[];
+  critical_assessment?: CriticalAssessment;
   error?: string;
   missing_env?: string;
 }
 
-type TabType = "overview" | "content" | "delivery" | "strategy" | "branding" | "engagement" | "titles";
+type TabType = "overview" | "critiques" | "content" | "delivery" | "strategy" | "branding" | "engagement" | "titles";
 
 function MissingEnvMessage({ missingVar }: { missingVar: string }) {
   return (
@@ -253,6 +277,7 @@ export default function ChannelImproverPage() {
 
   const tabs: { id: TabType; label: string }[] = [
     { id: "overview", label: "Overview" },
+    { id: "critiques", label: "Critiques" },
     { id: "content", label: "Content" },
     { id: "delivery", label: "Delivery" },
     { id: "strategy", label: "Strategy" },
@@ -552,6 +577,130 @@ export default function ChannelImproverPage() {
                             ))}
                           </ul>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Critiques Tab */}
+                  {activeTab === "critiques" && result.critical_assessment && (
+                    <div className="space-y-6">
+                      {/* Warning Banner */}
+                      <div className="p-4 bg-red-900/20 border border-red-700/30 rounded-lg">
+                        <p className="text-red-300 text-sm flex items-center gap-2">
+                          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          This is the honest, unfiltered feedback section. It might be uncomfortable, but it&apos;s meant to help you improve.
+                        </p>
+                      </div>
+
+                      {/* Summary */}
+                      <div className="p-5 bg-zinc-800/50 border border-red-700/30 rounded-lg">
+                        <h3 className="text-lg font-semibold text-red-400 mb-3">The Bottom Line</h3>
+                        <p className="text-zinc-300">{result.critical_assessment.summary}</p>
+                      </div>
+
+                      {/* Harsh Ratings */}
+                      {result.critical_assessment.harsh_rating && (
+                        <div className="p-5 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+                          <h3 className="text-lg font-semibold text-white mb-4">Honest Ratings</h3>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                            {[
+                              { label: "Content Quality", value: result.critical_assessment.harsh_rating.content_quality },
+                              { label: "Professionalism", value: result.critical_assessment.harsh_rating.professionalism },
+                              { label: "Audience Value", value: result.critical_assessment.harsh_rating.audience_value },
+                              { label: "Goal Effectiveness", value: result.critical_assessment.harsh_rating.goal_effectiveness },
+                            ].map((rating) => (
+                              <div key={rating.label} className="text-center">
+                                <div className={`text-2xl font-bold ${rating.value >= 7 ? "text-green-400" : rating.value >= 5 ? "text-yellow-400" : "text-red-400"}`}>
+                                  {rating.value}/10
+                                </div>
+                                <div className="text-xs text-zinc-500">{rating.label}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="pt-4 border-t border-zinc-700">
+                            <p className="text-zinc-400 text-sm font-medium">Verdict:</p>
+                            <p className="text-white">{result.critical_assessment.harsh_rating.overall_verdict}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Hard Truths */}
+                      {result.critical_assessment.hard_truths?.length > 0 && (
+                        <div className="space-y-4">
+                          <h3 className="text-lg font-semibold text-red-400 flex items-center gap-2">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Hard Truths
+                          </h3>
+                          {result.critical_assessment.hard_truths.map((truth, i) => (
+                            <div key={i} className="p-5 bg-zinc-800/50 border border-red-900/30 rounded-lg">
+                              <div className="flex items-start gap-3 mb-3">
+                                <span className="text-red-400 font-bold text-lg">#{i + 1}</span>
+                                <h4 className="text-lg font-semibold text-white">{truth.issue}</h4>
+                              </div>
+                              <div className="space-y-3 ml-8">
+                                <div>
+                                  <p className="text-xs text-zinc-500 mb-1">Why it matters:</p>
+                                  <p className="text-zinc-300">{truth.why_it_matters}</p>
+                                </div>
+                                {truth.evidence && (
+                                  <div className="p-3 bg-zinc-900/50 border-l-2 border-red-500 rounded">
+                                    <p className="text-xs text-zinc-500 mb-1">Evidence:</p>
+                                    <p className="text-zinc-400 text-sm italic">{truth.evidence}</p>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-xs text-zinc-500 mb-1">What to do:</p>
+                                  <p className="text-green-300">{truth.what_to_do}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Blind Spots & Competitive Gaps */}
+                      <div className="grid md:grid-cols-2 gap-6">
+                        {result.critical_assessment.blind_spots?.length > 0 && (
+                          <div className="p-5 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+                            <h3 className="text-lg font-semibold text-amber-400 mb-4 flex items-center gap-2">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                              </svg>
+                              Blind Spots
+                            </h3>
+                            <ul className="space-y-2">
+                              {result.critical_assessment.blind_spots.map((spot, i) => (
+                                <li key={i} className="text-zinc-300 flex items-start gap-2">
+                                  <span className="text-amber-400">•</span>
+                                  {spot}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {result.critical_assessment.competitive_gaps?.length > 0 && (
+                          <div className="p-5 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+                            <h3 className="text-lg font-semibold text-orange-400 mb-4 flex items-center gap-2">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                              </svg>
+                              Competitive Gaps
+                            </h3>
+                            <ul className="space-y-2">
+                              {result.critical_assessment.competitive_gaps.map((gap, i) => (
+                                <li key={i} className="text-zinc-300 flex items-start gap-2">
+                                  <span className="text-orange-400">•</span>
+                                  {gap}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
