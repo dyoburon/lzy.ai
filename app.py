@@ -19,7 +19,7 @@ app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5GB max
 
 # Import services
 from services.transcript import process_transcript, generate_chapters, chat_with_transcript
-from services.youtube_live import check_live_status, get_channel_info
+from services.youtube_live import check_live_status, get_channel_info, get_channel_context
 from services.discord_notify import send_discord_notification
 from services.shorts import (
     process_video_for_shorts,
@@ -475,6 +475,38 @@ def process_vertical_shorts():
 
 
 # --- Video Idea Generator Routes ---
+@app.route('/api/ideas/channel-context', methods=['POST'])
+def fetch_channel_context():
+    """
+    Fetch channel info for idea generation context.
+
+    Request body:
+    {
+        "channel_url": "https://youtube.com/@handle"
+    }
+
+    Returns channel name, description, and recent video titles.
+    """
+    if not os.environ.get("YOUTUBE_API_KEY"):
+        return jsonify({
+            "error": "YOUTUBE_API_KEY not configured",
+            "missing_env": "YOUTUBE_API_KEY"
+        }), 400
+
+    data = request.json
+    channel_url = data.get('channel_url')
+
+    if not channel_url:
+        return jsonify({"error": "No channel URL provided"}), 400
+
+    result = get_channel_context(channel_url, num_recent_videos=2)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
 @app.route('/api/ideas/generate', methods=['POST'])
 def generate_ideas():
     """
@@ -483,9 +515,14 @@ def generate_ideas():
     Request body:
     {
         "url": "https://youtube.com/watch?v=...",
-        "num_video_ideas": 5,  // Optional, 1-10, default 5
-        "num_shorts_ideas": 5,  // Optional, 1-10, default 5
-        "custom_instructions": "..."  // Optional style guidance
+        "num_video_ideas": 10,  // Optional, 1-10, default 10
+        "num_shorts_ideas": 10,  // Optional, 1-10, default 10
+        "custom_instructions": "...",  // Optional style guidance
+        "channel_context": {  // Optional channel info
+            "name": "Channel Name",
+            "description": "Channel description",
+            "recent_videos": [{"title": "..."}]
+        }
     }
 
     Returns generated content ideas.
@@ -498,17 +535,18 @@ def generate_ideas():
 
     data = request.json
     video_url = data.get('url')
-    num_video_ideas = data.get('num_video_ideas', 5)
-    num_shorts_ideas = data.get('num_shorts_ideas', 5)
+    num_video_ideas = data.get('num_video_ideas', 10)
+    num_shorts_ideas = data.get('num_shorts_ideas', 10)
     custom_instructions = data.get('custom_instructions')
+    channel_context = data.get('channel_context')
 
     # Validate counts
     try:
         num_video_ideas = max(1, min(10, int(num_video_ideas)))
         num_shorts_ideas = max(1, min(10, int(num_shorts_ideas)))
     except (ValueError, TypeError):
-        num_video_ideas = 5
-        num_shorts_ideas = 5
+        num_video_ideas = 10
+        num_shorts_ideas = 10
 
     if not video_url:
         return jsonify({"error": "No URL provided"}), 400
@@ -517,7 +555,8 @@ def generate_ideas():
         video_url,
         num_video_ideas=num_video_ideas,
         num_shorts_ideas=num_shorts_ideas,
-        custom_instructions=custom_instructions
+        custom_instructions=custom_instructions,
+        channel_context=channel_context
     )
 
     if "error" in result and "missing_env" not in result:
@@ -534,8 +573,8 @@ def regenerate_ideas():
     Request body:
     {
         "transcript": "...",  // Full transcript text
-        "num_video_ideas": 5,
-        "num_shorts_ideas": 5,
+        "num_video_ideas": 10,
+        "num_shorts_ideas": 10,
         "custom_instructions": "..."
     }
     """
@@ -547,8 +586,8 @@ def regenerate_ideas():
 
     data = request.json
     transcript = data.get('transcript')
-    num_video_ideas = data.get('num_video_ideas', 5)
-    num_shorts_ideas = data.get('num_shorts_ideas', 5)
+    num_video_ideas = data.get('num_video_ideas', 10)
+    num_shorts_ideas = data.get('num_shorts_ideas', 10)
     custom_instructions = data.get('custom_instructions')
 
     if not transcript:
@@ -559,8 +598,8 @@ def regenerate_ideas():
         num_video_ideas = max(1, min(10, int(num_video_ideas)))
         num_shorts_ideas = max(1, min(10, int(num_shorts_ideas)))
     except (ValueError, TypeError):
-        num_video_ideas = 5
-        num_shorts_ideas = 5
+        num_video_ideas = 10
+        num_shorts_ideas = 10
 
     result = generate_video_ideas(
         transcript,

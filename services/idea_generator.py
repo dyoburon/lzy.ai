@@ -46,7 +46,7 @@ def get_transcript_for_ideas(video_url):
         return {"error": str(e)}
 
 
-def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5, custom_instructions=None):
+def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5, custom_instructions=None, channel_context=None):
     """
     Uses Gemini to generate video and shorts ideas from a transcript.
 
@@ -55,6 +55,7 @@ def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5,
         num_video_ideas: Number of full video ideas to generate
         num_shorts_ideas: Number of shorts ideas to generate
         custom_instructions: Optional custom guidance for idea generation
+        channel_context: Optional dict with channel info (name, description, recent_videos)
 
     Returns:
         Dict with video_ideas and shorts_ideas arrays
@@ -73,8 +74,25 @@ For shorts, find moments with natural hooks - drama, humor, insights, or surpris
 
         instructions = custom_instructions.strip() if custom_instructions else default_instructions
 
-        prompt = f"""Analyze this video/livestream transcript and generate content ideas.
+        # Build channel context section if provided
+        channel_section = ""
+        if channel_context:
+            channel_name = channel_context.get('name', '')
+            channel_desc = channel_context.get('description', '')
+            recent_vids = channel_context.get('recent_videos', [])
+            recent_titles = [v.get('title', '') for v in recent_vids if v.get('title')]
 
+            channel_section = f"""
+CHANNEL CONTEXT:
+- Channel: {channel_name}
+- About: {channel_desc[:500]}{'...' if len(channel_desc) > 500 else ''}
+- Recent Videos: {', '.join(recent_titles) if recent_titles else 'N/A'}
+
+Ideas should fit this channel's brand and feel like natural extensions of their content.
+"""
+
+        prompt = f"""Analyze this video/livestream transcript and generate content ideas.
+{channel_section}
 TRANSCRIPT:
 {transcript_text}
 
@@ -92,6 +110,7 @@ OUTPUT FORMAT (JSON):
       "hook": "Opening hook",
       "key_points": ["point 1", "point 2", "point 3"],
       "source_context": "What inspired this idea",
+      "source_timestamp": "MM:SS - timestamp in the source video where this topic was discussed",
       "estimated_length": "15-20 minutes",
       "content_type": "tutorial|discussion|review|vlog|etc"
     }}
@@ -101,7 +120,7 @@ OUTPUT FORMAT (JSON):
       "title": "Shorts title",
       "concept": "Brief description",
       "hook": "First 3 seconds hook",
-      "source_timestamp": "MM:SS if applicable",
+      "source_timestamp": "MM:SS - timestamp in the source video",
       "format": "quick-tip|reaction|story|tutorial|hot-take|etc"
     }}
   ],
@@ -133,7 +152,7 @@ Return ONLY the JSON, no other text.
         return {"error": f"Error generating ideas: {str(e)}"}
 
 
-def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5, custom_instructions=None):
+def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5, custom_instructions=None, channel_context=None):
     """
     Main function to process a video and generate content ideas.
 
@@ -142,6 +161,7 @@ def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5, cu
         num_video_ideas: Number of video ideas to generate
         num_shorts_ideas: Number of shorts ideas to generate
         custom_instructions: Optional custom guidance for idea generation
+        channel_context: Optional dict with channel info (name, description, recent_videos)
 
     Returns:
         Dict with generated ideas
@@ -156,7 +176,8 @@ def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5, cu
         transcript_result['transcript'],
         num_video_ideas=num_video_ideas,
         num_shorts_ideas=num_shorts_ideas,
-        custom_instructions=custom_instructions
+        custom_instructions=custom_instructions,
+        channel_context=channel_context
     )
 
     if "error" in ideas_result:

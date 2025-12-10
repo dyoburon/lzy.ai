@@ -9,6 +9,7 @@ interface VideoIdea {
   hook: string;
   key_points: string[];
   source_context: string;
+  source_timestamp?: string;
   estimated_length: string;
   content_type: string;
 }
@@ -205,12 +206,25 @@ function IdeasChat({
   );
 }
 
+interface ChannelContext {
+  channel_id?: string;
+  name: string;
+  description: string;
+  thumbnail?: string;
+  subscriber_count?: string;
+  recent_videos: { title: string; video_id: string }[];
+}
+
 export default function IdeaGeneratorPage() {
   const [urls, setUrls] = useState<string[]>([""]);
-  const [numVideoIdeas, setNumVideoIdeas] = useState(5);
-  const [numShortsIdeas, setNumShortsIdeas] = useState(5);
+  const [numVideoIdeas, setNumVideoIdeas] = useState(10);
+  const [numShortsIdeas, setNumShortsIdeas] = useState(10);
   const [customInstructions, setCustomInstructions] = useState("");
   const [showInstructions, setShowInstructions] = useState(false);
+  const [channelUrl, setChannelUrl] = useState("");
+  const [channelContext, setChannelContext] = useState<ChannelContext | null>(null);
+  const [channelLoading, setChannelLoading] = useState(false);
+  const [channelError, setChannelError] = useState("");
   const [results, setResults] = useState<IdeasResult[]>([]);
   const [missingEnv, setMissingEnv] = useState<string | null>(null);
   const [activeResultId, setActiveResultId] = useState<string | null>(null);
@@ -245,6 +259,42 @@ export default function IdeaGeneratorPage() {
     setUrls(newUrls);
   };
 
+  const fetchChannelContext = async () => {
+    if (!channelUrl.trim()) return;
+
+    setChannelLoading(true);
+    setChannelError("");
+
+    try {
+      const response = await fetch(`${API_URL}/api/ideas/channel-context`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_url: channelUrl }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        setChannelError(data.error);
+        setChannelContext(null);
+      } else {
+        setChannelContext(data);
+        setChannelError("");
+      }
+    } catch {
+      setChannelError("Failed to fetch channel info");
+      setChannelContext(null);
+    } finally {
+      setChannelLoading(false);
+    }
+  };
+
+  const clearChannelContext = () => {
+    setChannelUrl("");
+    setChannelContext(null);
+    setChannelError("");
+  };
+
   const processUrls = async () => {
     const validUrls = urls.filter(u => u.trim());
     if (validUrls.length === 0) return;
@@ -275,7 +325,8 @@ export default function IdeaGeneratorPage() {
               url: validUrls[i],
               num_video_ideas: numVideoIdeas,
               num_shorts_ideas: numShortsIdeas,
-              custom_instructions: customInstructions || undefined
+              custom_instructions: customInstructions || undefined,
+              channel_context: channelContext || undefined
             }),
           });
 
@@ -452,6 +503,84 @@ export default function IdeaGeneratorPage() {
           <MissingEnvMessage missingVar={missingEnv} />
         ) : (
           <>
+            {/* Channel Context (Optional) */}
+            <div className="mb-6 p-4 bg-zinc-800/30 border border-zinc-700/50 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-300">Channel Context</h3>
+                  <p className="text-xs text-zinc-500">Optional - helps generate ideas that fit your brand</p>
+                </div>
+                {channelContext && (
+                  <button
+                    type="button"
+                    onClick={clearChannelContext}
+                    className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {!channelContext ? (
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={channelUrl}
+                    onChange={(e) => setChannelUrl(e.target.value)}
+                    placeholder="https://youtube.com/@yourchannel"
+                    className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={fetchChannelContext}
+                    disabled={channelLoading || !channelUrl.trim()}
+                    className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-lg transition-colors text-sm flex items-center gap-2"
+                  >
+                    {channelLoading ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Loading...
+                      </>
+                    ) : (
+                      "Load Channel"
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-3 bg-zinc-900/50 rounded-lg">
+                  {channelContext.thumbnail && (
+                    <img
+                      src={channelContext.thumbnail}
+                      alt={channelContext.name}
+                      className="w-10 h-10 rounded-full"
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-medium truncate">{channelContext.name}</p>
+                    <p className="text-xs text-zinc-500 truncate">
+                      {channelContext.description?.slice(0, 100)}
+                      {channelContext.description && channelContext.description.length > 100 ? "..." : ""}
+                    </p>
+                  </div>
+                  <div className="text-right text-xs text-zinc-500">
+                    {channelContext.subscriber_count && (
+                      <p>{parseInt(channelContext.subscriber_count).toLocaleString()} subs</p>
+                    )}
+                    {channelContext.recent_videos?.length > 0 && (
+                      <p>{channelContext.recent_videos.length} recent videos loaded</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {channelError && (
+                <p className="mt-2 text-xs text-red-400">{channelError}</p>
+              )}
+            </div>
+
             {/* Custom Instructions */}
             <div className="mb-6">
               <button
@@ -596,7 +725,11 @@ export default function IdeaGeneratorPage() {
                             Video {i + 1}
                           </span>
                         ) : (
-                          <span>Video {i + 1}{r.error ? " (Error)" : ""}</span>
+                          <span className="flex items-center gap-1">
+                            Video {i + 1}
+                            {r.video_id && <span className="text-xs opacity-60">({r.video_id.slice(0, 6)}...)</span>}
+                            {r.error && " (Error)"}
+                          </span>
                         )}
                       </button>
                     ))}
@@ -743,12 +876,17 @@ export default function IdeaGeneratorPage() {
                                 <div key={index} className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
                                   <div className="flex items-start justify-between gap-4 mb-4">
                                     <div>
-                                      <div className="flex items-center gap-3 mb-2">
+                                      <div className="flex items-center gap-3 mb-2 flex-wrap">
                                         <span className="text-2xl font-bold text-purple-400">#{index + 1}</span>
                                         <span className={`px-2 py-1 text-xs rounded border ${getContentTypeColor(idea.content_type)}`}>
                                           {idea.content_type}
                                         </span>
                                         <span className="text-zinc-500 text-sm">{idea.estimated_length}</span>
+                                        {idea.source_timestamp && (
+                                          <span className="text-zinc-500 text-xs font-mono bg-zinc-800 px-2 py-0.5 rounded">
+                                            @{idea.source_timestamp}
+                                          </span>
+                                        )}
                                       </div>
                                       <h3 className="text-xl font-semibold text-white">{idea.title}</h3>
                                     </div>
