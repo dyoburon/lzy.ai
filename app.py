@@ -18,7 +18,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5GB max
 
 # Import services
-from services.transcript import process_transcript, generate_chapters
+from services.transcript import process_transcript, generate_chapters, chat_with_transcript
 from services.youtube_live import check_live_status, get_channel_info
 from services.discord_notify import send_discord_notification
 from services.shorts import (
@@ -30,7 +30,7 @@ from services.shorts import (
     process_clip_to_vertical_with_captions,
     process_clips_to_vertical_with_captions
 )
-from services.idea_generator import process_video_for_ideas
+from services.idea_generator import process_video_for_ideas, generate_video_ideas, chat_with_ideas
 from services.channel_improver import analyze_video_for_improvements
 from services.audio_mixer import (
     check_demucs_status,
@@ -96,12 +96,14 @@ def get_transcript():
 
     Request body (YouTube mode):
     {
-        "url": "https://youtube.com/watch?v=..."
+        "url": "https://youtube.com/watch?v=...",
+        "custom_instructions": "..."  // Optional style guidance for chapters
     }
 
     Request body (Custom mode):
     {
-        "custom_transcript": "..."  // Plain text transcript
+        "custom_transcript": "...",  // Plain text transcript
+        "custom_instructions": "..."  // Optional style guidance for chapters
     }
 
     Returns transcript with AI-generated chapters.
@@ -115,12 +117,13 @@ def get_transcript():
     data = request.json
     video_url = data.get('url')
     custom_transcript = data.get('custom_transcript')
+    custom_instructions = data.get('custom_instructions')
 
     # Custom transcript mode
     if custom_transcript:
         # Generate chapters using Gemini directly from the text
         from services.transcript import generate_chapters
-        chapters = generate_chapters(custom_transcript)
+        chapters = generate_chapters(custom_transcript, custom_instructions)
 
         return jsonify({
             "transcript": [],
@@ -133,12 +136,55 @@ def get_transcript():
     if not video_url:
         return jsonify({"error": "No URL or custom transcript provided"}), 400
 
-    result = process_transcript(video_url)
+    result = process_transcript(video_url, custom_instructions)
     if "error" in result:
         return jsonify(result), 400
 
     result['source'] = 'youtube'
     return jsonify(result)
+
+
+@app.route('/api/transcript/chat', methods=['POST'])
+def transcript_chat():
+    """
+    Chat with Gemini about transcript content using Gemini 2.5 Flash.
+
+    Request body:
+    {
+        "message": "User's question about the transcript",
+        "context": "The full transcript text",
+        "history": [  // Optional - previous messages
+            {"role": "user", "content": "..."},
+            {"role": "assistant", "content": "..."}
+        ]
+    }
+
+    Returns AI response about the transcript content.
+    """
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({
+            "error": "GEMINI_API_KEY not configured",
+            "missing_env": "GEMINI_API_KEY"
+        }), 400
+
+    data = request.json
+    message = data.get('message')
+    context = data.get('context')
+    history = data.get('history', [])
+
+    if not message:
+        return jsonify({"error": "No message provided"}), 400
+
+    if not context:
+        return jsonify({"error": "No transcript context provided"}), 400
+
+    result = chat_with_transcript(message, context, history)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
 
 # --- YouTube Live Check Routes ---
 @app.route('/api/youtube/live-status', methods=['GET'])
@@ -261,15 +307,17 @@ def detect_moments():
     Request body (YouTube mode):
     {
         "url": "https://youtube.com/watch?v=...",
-        "num_clips": 3,  // Optional, 1-10, default 3
-        "custom_prompt": "Focus on funny moments..."  // Optional custom instructions
+        "num_clips": 3,  // Optional, 1-10 (or 1-15 in curator mode), default 3
+        "custom_prompt": "Focus on funny moments...",  // Optional custom instructions
+        "curator_mode": false  // Optional, if true allows up to 15 clips for user selection
     }
 
     Request body (Custom transcript mode):
     {
         "custom_transcript": "...",  // Plain text transcript
         "num_clips": 3,
-        "custom_prompt": "..."
+        "custom_prompt": "...",
+        "curator_mode": false
     }
 
     Returns detected moments with timestamps and viral scores.
@@ -285,11 +333,13 @@ def detect_moments():
     custom_transcript = data.get('custom_transcript')
     num_clips = data.get('num_clips', 3)
     custom_prompt = data.get('custom_prompt')
+    curator_mode = data.get('curator_mode', False)
 
-    # Validate num_clips
+    # Validate num_clips (15 max in curator mode, 10 otherwise)
+    max_clips = 15 if curator_mode else 10
     try:
         num_clips = int(num_clips)
-        num_clips = max(1, min(10, num_clips))
+        num_clips = max(1, min(max_clips, num_clips))
     except (ValueError, TypeError):
         num_clips = 3
 
@@ -299,7 +349,8 @@ def detect_moments():
         moments_result = detect_interesting_moments(
             custom_transcript,
             num_clips=num_clips,
-            custom_prompt=custom_prompt
+            custom_prompt=custom_prompt,
+            curator_mode=curator_mode
         )
 
         if "error" in moments_result:
@@ -317,7 +368,7 @@ def detect_moments():
     if not video_url:
         return jsonify({"error": "No URL or custom transcript provided"}), 400
 
-    result = process_video_for_shorts(video_url, num_clips=num_clips, custom_prompt=custom_prompt)
+    result = process_video_for_shorts(video_url, num_clips=num_clips, custom_prompt=custom_prompt, curator_mode=curator_mode)
     if "error" in result:
         return jsonify(result), 400
 
@@ -433,7 +484,8 @@ def generate_ideas():
     {
         "url": "https://youtube.com/watch?v=...",
         "num_video_ideas": 5,  // Optional, 1-10, default 5
-        "num_shorts_ideas": 5  // Optional, 1-10, default 5
+        "num_shorts_ideas": 5,  // Optional, 1-10, default 5
+        "custom_instructions": "..."  // Optional style guidance
     }
 
     Returns generated content ideas.
@@ -448,6 +500,7 @@ def generate_ideas():
     video_url = data.get('url')
     num_video_ideas = data.get('num_video_ideas', 5)
     num_shorts_ideas = data.get('num_shorts_ideas', 5)
+    custom_instructions = data.get('custom_instructions')
 
     # Validate counts
     try:
@@ -463,10 +516,97 @@ def generate_ideas():
     result = process_video_for_ideas(
         video_url,
         num_video_ideas=num_video_ideas,
-        num_shorts_ideas=num_shorts_ideas
+        num_shorts_ideas=num_shorts_ideas,
+        custom_instructions=custom_instructions
     )
 
     if "error" in result and "missing_env" not in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@app.route('/api/ideas/regenerate', methods=['POST'])
+def regenerate_ideas():
+    """
+    Regenerate ideas from an existing transcript.
+
+    Request body:
+    {
+        "transcript": "...",  // Full transcript text
+        "num_video_ideas": 5,
+        "num_shorts_ideas": 5,
+        "custom_instructions": "..."
+    }
+    """
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({
+            "error": "GEMINI_API_KEY not configured",
+            "missing_env": "GEMINI_API_KEY"
+        }), 400
+
+    data = request.json
+    transcript = data.get('transcript')
+    num_video_ideas = data.get('num_video_ideas', 5)
+    num_shorts_ideas = data.get('num_shorts_ideas', 5)
+    custom_instructions = data.get('custom_instructions')
+
+    if not transcript:
+        return jsonify({"error": "No transcript provided"}), 400
+
+    # Validate counts
+    try:
+        num_video_ideas = max(1, min(10, int(num_video_ideas)))
+        num_shorts_ideas = max(1, min(10, int(num_shorts_ideas)))
+    except (ValueError, TypeError):
+        num_video_ideas = 5
+        num_shorts_ideas = 5
+
+    result = generate_video_ideas(
+        transcript,
+        num_video_ideas=num_video_ideas,
+        num_shorts_ideas=num_shorts_ideas,
+        custom_instructions=custom_instructions
+    )
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@app.route('/api/ideas/chat', methods=['POST'])
+def ideas_chat():
+    """
+    Chat with Gemini about video ideas using Gemini 2.5 Flash.
+
+    Request body:
+    {
+        "message": "User's question",
+        "context": "Transcript and ideas context",
+        "history": [...]  // Optional previous messages
+    }
+    """
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({
+            "error": "GEMINI_API_KEY not configured",
+            "missing_env": "GEMINI_API_KEY"
+        }), 400
+
+    data = request.json
+    message = data.get('message')
+    context = data.get('context')
+    history = data.get('history', [])
+
+    if not message:
+        return jsonify({"error": "No message provided"}), 400
+
+    if not context:
+        return jsonify({"error": "No context provided"}), 400
+
+    result = chat_with_ideas(message, context, history)
+
+    if "error" in result:
         return jsonify(result), 400
 
     return jsonify(result)

@@ -30,7 +30,7 @@ def format_timestamp(seconds):
         return f"{h}:{m:02d}:{s:02d}"
     return f"{m:02d}:{s:02d}"
 
-def process_transcript(video_url):
+def process_transcript(video_url, custom_instructions=None):
     """Fetches transcript and generates chapters for a YouTube video."""
     video_id = extract_video_id(video_url)
     if not video_id:
@@ -58,7 +58,7 @@ def process_transcript(video_url):
             full_text_for_ai += f"[{timestamp}] {text}\n"
 
         # Generate chapters using Gemini
-        chapters = generate_chapters(full_text_for_ai)
+        chapters = generate_chapters(full_text_for_ai, custom_instructions)
 
         return {
             "transcript": formatted_transcript,
@@ -69,7 +69,7 @@ def process_transcript(video_url):
     except Exception as e:
         return {"error": str(e)}
 
-def generate_chapters(transcript_text):
+def generate_chapters(transcript_text, custom_instructions=None):
     """Uses Gemini to generate video chapters from transcript."""
     if not GEMINI_API_KEY:
         return "Error: GEMINI_API_KEY not configured."
@@ -77,25 +77,78 @@ def generate_chapters(transcript_text):
     try:
         model = genai.GenerativeModel('gemini-2.5-pro')
 
-        prompt = f"""
-        You are an expert video marketer and content strategist. Your goal is to generate a list of engaging video chapters for a YouTube video based on its transcript.
+        # Default instructions if none provided
+        default_instructions = """Your goal is to make viewers want to click through and watch each section.
+Write titles that tease the interesting stuff - the drama, the funny moments, the insights, the turning points.
+Be specific enough that people know what they're getting, but intriguing enough that they want to see it.
+Avoid generic filler like "Introduction" or "Conclusion" - find the hook in every section.
+Don't be cliche or clickbaity, but do sell it."""
 
-        Here is the transcript of the video:
-        {transcript_text}
+        instructions = custom_instructions.strip() if custom_instructions else default_instructions
 
-        Please generate a list of chapters for this video.
-        The format MUST be exactly like this:
-        MM:SS - Chapter Title
+        prompt = f"""Generate YouTube chapters for this transcript.
 
-        Rules:
-        1. **Limit**: Generate a MAXIMUM of 15 chapters. Consolidate less important sections if necessary.
-        2. **Tone**: Write "marketer-style" headlines. They should be interesting, catchy, and encourage clicks, but NOT clickbait. Avoid generic titles like "Introduction" or "Conclusion". Find the most interesting insight or topic in that section and make that the headline.
-        3. **Content**: Identify the most valuable or intriguing points in each section to form the chapter.
-        4. **Format**: Do not include any introductory or concluding text, just the list of chapters.
-        """
+Format each chapter exactly like:
+MM:SS - Chapter Title
+
+Rules:
+- Maximum 15 chapters (combine smaller sections if needed)
+- Use timestamps from the transcript
+- Output only the chapter list, no other text
+
+Style guidance:
+{instructions}
+
+Transcript:
+{transcript_text}"""
 
         response = model.generate_content(prompt)
         return response.text
 
     except Exception as e:
         return f"Error generating chapters: {str(e)}"
+
+
+def chat_with_transcript(message, context, history=None):
+    """
+    Chat with Gemini about transcript content using Gemini 2.5 Flash.
+
+    Args:
+        message: The user's question/message
+        context: The transcript content to discuss
+        history: Optional list of previous messages [{"role": "user"|"assistant", "content": "..."}]
+
+    Returns:
+        dict with 'response' or 'error'
+    """
+    if not GEMINI_API_KEY:
+        return {"error": "GEMINI_API_KEY not configured."}
+
+    try:
+        # Use Gemini 2.5 Flash for cost-effective chat
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        # Build conversation history for context
+        conversation_context = ""
+        if history:
+            for msg in history[-10:]:  # Last 10 messages
+                role = "User" if msg.get("role") == "user" else "Assistant"
+                conversation_context += f"{role}: {msg.get('content', '')}\n"
+
+        prompt = f"""You are a helpful assistant analyzing video transcripts. Answer questions about the transcript content accurately and concisely.
+
+=== TRANSCRIPT CONTENT ===
+{context}
+=== END TRANSCRIPT ===
+
+{f"Previous conversation:{chr(10)}{conversation_context}" if conversation_context else ""}
+
+User's question: {message}
+
+Provide a helpful, accurate response based on the transcript content. If the answer isn't in the transcript, say so. Be concise but thorough."""
+
+        response = model.generate_content(prompt)
+        return {"response": response.text}
+
+    except Exception as e:
+        return {"error": f"Chat error: {str(e)}"}

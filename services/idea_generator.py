@@ -46,7 +46,7 @@ def get_transcript_for_ideas(video_url):
         return {"error": str(e)}
 
 
-def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5):
+def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5, custom_instructions=None):
     """
     Uses Gemini to generate video and shorts ideas from a transcript.
 
@@ -54,6 +54,7 @@ def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5)
         transcript_text: The full transcript with timestamps
         num_video_ideas: Number of full video ideas to generate
         num_shorts_ideas: Number of shorts ideas to generate
+        custom_instructions: Optional custom guidance for idea generation
 
     Returns:
         Dict with video_ideas and shorts_ideas arrays
@@ -64,49 +65,41 @@ def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5)
     try:
         model = genai.GenerativeModel('gemini-2.0-flash')
 
-        prompt = f"""You are an expert content strategist for YouTube creators. Analyze this video/livestream transcript and generate content ideas.
+        # Default instructions
+        default_instructions = """Generate ideas that would genuinely interest the same audience.
+Focus on topics they clearly care about based on what was discussed.
+Make video titles compelling but not clickbait.
+For shorts, find moments with natural hooks - drama, humor, insights, or surprises."""
+
+        instructions = custom_instructions.strip() if custom_instructions else default_instructions
+
+        prompt = f"""Analyze this video/livestream transcript and generate content ideas.
 
 TRANSCRIPT:
 {transcript_text}
 
-TASK: Based on the topics, discussions, questions, and themes in this video, generate:
-1. {num_video_ideas} ideas for FUTURE FULL-LENGTH VIDEOS (10-30 minutes)
-2. {num_shorts_ideas} ideas for SHORTS (15-60 seconds)
+TASK: Generate {num_video_ideas} FULL-LENGTH VIDEO ideas and {num_shorts_ideas} SHORTS ideas.
 
-For VIDEO IDEAS, look for:
-- Topics that were briefly mentioned but could be expanded into full videos
-- Questions from chat/audience that deserve deep-dive answers
-- Interesting tangents that could become standalone content
-- Tutorial opportunities based on things explained
-- Controversial takes or opinions that could spark discussion
-- Behind-the-scenes or process videos hinted at
-
-For SHORTS IDEAS, look for:
-- Quotable moments or hot takes
-- Quick tips or tricks mentioned
-- Funny or surprising moments
-- Before/after transformations
-- Quick tutorials or how-tos
-- Reaction-worthy content
-- Cliffhangers or teasers for longer content
+STYLE GUIDANCE:
+{instructions}
 
 OUTPUT FORMAT (JSON):
 {{
   "video_ideas": [
     {{
-      "title": "Catchy video title",
-      "description": "2-3 sentence description of the video concept",
-      "hook": "Opening hook to grab viewers",
+      "title": "Video title",
+      "description": "2-3 sentence concept",
+      "hook": "Opening hook",
       "key_points": ["point 1", "point 2", "point 3"],
-      "source_context": "What from the transcript inspired this idea",
+      "source_context": "What inspired this idea",
       "estimated_length": "15-20 minutes",
       "content_type": "tutorial|discussion|review|vlog|etc"
     }}
   ],
   "shorts_ideas": [
     {{
-      "title": "Catchy shorts title",
-      "concept": "Brief description of the short",
+      "title": "Shorts title",
+      "concept": "Brief description",
       "hook": "First 3 seconds hook",
       "source_timestamp": "MM:SS if applicable",
       "format": "quick-tip|reaction|story|tutorial|hot-take|etc"
@@ -140,7 +133,7 @@ Return ONLY the JSON, no other text.
         return {"error": f"Error generating ideas: {str(e)}"}
 
 
-def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5):
+def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5, custom_instructions=None):
     """
     Main function to process a video and generate content ideas.
 
@@ -148,6 +141,7 @@ def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5):
         video_url: YouTube URL
         num_video_ideas: Number of video ideas to generate
         num_shorts_ideas: Number of shorts ideas to generate
+        custom_instructions: Optional custom guidance for idea generation
 
     Returns:
         Dict with generated ideas
@@ -161,7 +155,8 @@ def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5):
     ideas_result = generate_video_ideas(
         transcript_result['transcript'],
         num_video_ideas=num_video_ideas,
-        num_shorts_ideas=num_shorts_ideas
+        num_shorts_ideas=num_shorts_ideas,
+        custom_instructions=custom_instructions
     )
 
     if "error" in ideas_result:
@@ -173,5 +168,49 @@ def process_video_for_ideas(video_url, num_video_ideas=5, num_shorts_ideas=5):
     return {
         "video_id": transcript_result['video_id'],
         "transcript_preview": transcript_result['transcript'][:500] + "...",
+        "full_transcript": transcript_result['transcript'],
         **ideas_result
     }
+
+
+def chat_with_ideas(message, context, history=None):
+    """
+    Chat with Gemini about video ideas using Gemini 2.5 Flash.
+
+    Args:
+        message: The user's question/message
+        context: The transcript and ideas context
+        history: Optional list of previous messages
+
+    Returns:
+        dict with 'response' or 'error'
+    """
+    if not GEMINI_API_KEY:
+        return {"error": "GEMINI_API_KEY not configured."}
+
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        conversation_context = ""
+        if history:
+            for msg in history[-10:]:
+                role = "User" if msg.get("role") == "user" else "Assistant"
+                conversation_context += f"{role}: {msg.get('content', '')}\n"
+
+        prompt = f"""You are a content strategist helping brainstorm video ideas. You have access to video transcripts and generated ideas. Help refine ideas, suggest variations, or answer questions about the content.
+
+=== CONTEXT ===
+{context}
+=== END CONTEXT ===
+
+{f"Previous conversation:{chr(10)}{conversation_context}" if conversation_context else ""}
+
+User: {message}
+
+Be helpful and specific. If asked to improve an idea, give concrete suggestions. If asked for new ideas, base them on the transcript content."""
+
+        response = model.generate_content(prompt)
+        return {"response": response.text}
+
+    except Exception as e:
+        return {"error": f"Chat error: {str(e)}"}

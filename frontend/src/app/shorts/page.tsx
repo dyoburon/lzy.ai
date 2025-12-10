@@ -86,6 +86,11 @@ export default function ShortsPage() {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Curator Mode state
+  const [curatorMode, setCuratorMode] = useState(false);
+  const [selectedMoments, setSelectedMoments] = useState<Set<number>>(new Set());
+  const [clipping, setClipping] = useState(false);
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
 
   // Navigate to region selector with clips
@@ -191,15 +196,18 @@ export default function ShortsPage() {
     setError("");
     setDetectResult(null);
     setClipResult(null);
+    setSelectedMoments(new Set());
     // Cleanup old blob URLs
     clipVideoUrls.forEach(url => URL.revokeObjectURL(url));
     setClipVideoUrls([]);
 
     try {
       // Step 1: Detect moments
+      // In curator mode, find 12 moments for user selection
+      const effectiveNumClips = curatorMode ? 12 : numClips;
       const detectBody = transcriptMode === "youtube"
-        ? { url, num_clips: numClips, custom_prompt: customPrompt || undefined }
-        : { custom_transcript: customTranscript, num_clips: numClips, custom_prompt: customPrompt || undefined };
+        ? { url, num_clips: effectiveNumClips, custom_prompt: customPrompt || undefined, curator_mode: curatorMode }
+        : { custom_transcript: customTranscript, num_clips: effectiveNumClips, custom_prompt: customPrompt || undefined, curator_mode: curatorMode };
 
       const detectResponse = await fetch(`${API_URL}/api/shorts/detect-moments`, {
         method: "POST",
@@ -223,7 +231,13 @@ export default function ShortsPage() {
 
       setDetectResult(detectData);
 
-      // Step 2: Clip the video automatically
+      // In curator mode, stop here and let user select moments
+      if (curatorMode) {
+        setLoading(false);
+        return;
+      }
+
+      // Step 2: Clip the video automatically (non-curator mode only)
       const clipResponse = await fetch(`${API_URL}/api/shorts/clip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -255,6 +269,76 @@ export default function ShortsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Clip selected moments (curator mode)
+  const handleClipSelectedMoments = async () => {
+    if (!detectResult || selectedMoments.size === 0) return;
+
+    setClipping(true);
+    setError("");
+    // Cleanup old blob URLs
+    clipVideoUrls.forEach(url => URL.revokeObjectURL(url));
+    setClipVideoUrls([]);
+
+    try {
+      // Get only the selected moments
+      const momentsToClip = detectResult.moments.filter((_, index) => selectedMoments.has(index));
+
+      const clipResponse = await fetch(`${API_URL}/api/shorts/clip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_path: uploadedVideoPath,
+          moments: momentsToClip,
+        }),
+      });
+
+      const clipData = await clipResponse.json();
+
+      if (clipData.error) {
+        setError(clipData.error);
+      } else {
+        setClipResult(clipData);
+
+        // Create blob URLs for each clip
+        const urls = clipData.clips.map((clip: ClipResult) => {
+          if (clip.clip_result.success && clip.clip_result.video_data) {
+            const blob = base64ToBlob(clip.clip_result.video_data);
+            return URL.createObjectURL(blob);
+          }
+          return '';
+        });
+        setClipVideoUrls(urls);
+      }
+    } catch {
+      setError("Failed to connect to the server. Make sure the backend is running.");
+    } finally {
+      setClipping(false);
+    }
+  };
+
+  // Toggle moment selection
+  const toggleMomentSelection = (index: number) => {
+    const newSelected = new Set(selectedMoments);
+    if (newSelected.has(index)) {
+      newSelected.delete(index);
+    } else {
+      newSelected.add(index);
+    }
+    setSelectedMoments(newSelected);
+  };
+
+  // Select all moments
+  const selectAllMoments = () => {
+    if (!detectResult) return;
+    const allIndices = new Set(detectResult.moments.map((_, i) => i));
+    setSelectedMoments(allIndices);
+  };
+
+  // Deselect all moments
+  const deselectAllMoments = () => {
+    setSelectedMoments(new Set());
   };
 
   const handleDownload = (index: number) => {
@@ -544,20 +628,49 @@ export default function ShortsPage() {
                 )}
               </div>
 
-              {/* Number of Clips */}
+              {/* Curator Mode Toggle */}
               <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
-                <label className="block text-sm font-medium text-white mb-2">
-                  Number of Clips <span className="text-zinc-500 font-normal">(1-10)</span>
-                </label>
-                <input
-                  type="number"
-                  value={numClips}
-                  onChange={(e) => setNumClips(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                  min={1}
-                  max={10}
-                  className="w-24 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500 transition-colors"
-                />
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block text-sm font-medium text-white">
+                      Curator Mode
+                    </label>
+                    <p className="text-sm text-zinc-500 mt-1">
+                      Preview 10-15 potential moments and select which ones to clip
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCuratorMode(!curatorMode)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      curatorMode ? 'bg-purple-600' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        curatorMode ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
+
+              {/* Number of Clips - hidden in curator mode */}
+              {!curatorMode && (
+                <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Number of Clips <span className="text-zinc-500 font-normal">(1-10)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={numClips}
+                    onChange={(e) => setNumClips(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                    min={1}
+                    max={10}
+                    className="w-24 px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500 transition-colors"
+                  />
+                </div>
+              )}
 
               {/* Custom Instructions (Optional) */}
               <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
@@ -633,7 +746,10 @@ export default function ShortsPage() {
                 disabled={loading || !canSubmit}
                 className="w-full px-6 py-4 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors text-lg"
               >
-                {loading ? "Processing... (Detecting moments & clipping)" : "Find & Clip Best Moments"}
+                {loading
+                  ? (curatorMode ? "Finding potential moments..." : "Processing... (Detecting moments & clipping)")
+                  : (curatorMode ? "Find Potential Moments" : "Find & Clip Best Moments")
+                }
               </button>
             </form>
 
@@ -687,6 +803,144 @@ export default function ShortsPage() {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Curator Mode - Moment Selection Interface */}
+            {curatorMode && detectResult && !clipResult && (
+              <div className="mb-8 space-y-6">
+                {/* Header */}
+                <div className="p-6 bg-purple-900/20 border border-purple-700/50 rounded-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-xl font-semibold text-purple-400 mb-2">
+                        {detectResult.moments.length} Potential Moments Found
+                      </h2>
+                      <p className="text-zinc-400 text-sm">
+                        Select the moments you want to clip, then click &quot;Clip Selected Moments&quot;
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={selectAllMoments}
+                        className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm rounded transition-colors"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={deselectAllMoments}
+                        className="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm rounded transition-colors"
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-400">
+                      {selectedMoments.size} of {detectResult.moments.length} moments selected
+                    </span>
+                    <button
+                      onClick={handleClipSelectedMoments}
+                      disabled={clipping || selectedMoments.size === 0}
+                      className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      {clipping ? (
+                        <>
+                          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Clipping...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Clip Selected Moments ({selectedMoments.size})
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Moment Cards */}
+                <div className="grid gap-4">
+                  {detectResult.moments.map((moment, index) => (
+                    <div
+                      key={index}
+                      onClick={() => toggleMomentSelection(index)}
+                      className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                        selectedMoments.has(index)
+                          ? 'bg-purple-900/30 border-purple-500'
+                          : 'bg-zinc-800/50 border-zinc-700 hover:border-zinc-600'
+                      }`}
+                    >
+                      <div className="flex items-start gap-4">
+                        {/* Checkbox */}
+                        <div className={`flex-shrink-0 w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${
+                          selectedMoments.has(index)
+                            ? 'bg-purple-600 border-purple-600'
+                            : 'border-zinc-600'
+                        }`}>
+                          {selectedMoments.has(index) && (
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-white font-medium truncate pr-4">{moment.title}</h3>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-purple-400 font-mono text-sm">
+                                {moment.start_time} - {moment.end_time}
+                              </span>
+                              <span className={`text-sm font-medium px-2 py-0.5 rounded ${
+                                moment.viral_score >= 8
+                                  ? 'bg-green-900/50 text-green-400'
+                                  : moment.viral_score >= 6
+                                  ? 'bg-yellow-900/50 text-yellow-400'
+                                  : 'bg-orange-900/50 text-orange-400'
+                              }`}>
+                                {moment.viral_score}/10
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-zinc-400 text-sm">{moment.reason}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Bottom Action */}
+                <div className="flex justify-center">
+                  <button
+                    onClick={handleClipSelectedMoments}
+                    disabled={clipping || selectedMoments.size === 0}
+                    className="px-8 py-4 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors text-lg flex items-center gap-3"
+                  >
+                    {clipping ? (
+                      <>
+                        <svg className="w-6 h-6 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Clipping Selected Moments...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Clip {selectedMoments.size} Selected Moment{selectedMoments.size !== 1 ? 's' : ''}
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             )}
 
