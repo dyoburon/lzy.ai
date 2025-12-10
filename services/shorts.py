@@ -895,22 +895,46 @@ def process_clip_to_pip(video_data_base64, regions, pip_settings):
         # 5. Overlay on top of background
 
         if shape == "circle":
-            # Circle mask using geq filter
+            # Circle mask - use colorkey approach or proper rgba geq
+            # geq needs r, g, b, a all specified to preserve colors
+            cx = overlay_width // 2
+            cy = overlay_height // 2
+            radius = min(overlay_width, overlay_height) // 2
             filter_complex = (
                 f"[0:v]crop={bg_w}:{bg_h}:{bg_x}:{bg_y},scale={out_width}:{out_height}:force_original_aspect_ratio=increase,"
                 f"crop={out_width}:{out_height}[bg];"
                 f"[0:v]crop={ov_w}:{ov_h}:{ov_x}:{ov_y},scale={overlay_width}:{overlay_height},"
-                f"format=rgba,geq=lum='lum(X,Y)':a='if(gt(sqrt(pow(X-{overlay_width}/2,2)+pow(Y-{overlay_height}/2,2)),{overlay_width}/2),0,255)'[ov];"
+                f"format=rgba,geq="
+                f"r='r(X,Y)':"
+                f"g='g(X,Y)':"
+                f"b='b(X,Y)':"
+                f"a='if(lte(sqrt(pow(X-{cx},2)+pow(Y-{cy},2)),{radius}),255,0)'"
+                f"[ov];"
                 f"[bg][ov]overlay={ov_out_x}:{ov_out_y}"
             )
         else:
-            # Rounded corners
+            # Rounded corners - use proper rgba geq to preserve colors
             border_radius = min(overlay_width, overlay_height) // 6
+            w2 = overlay_width // 2
+            h2 = overlay_height // 2
+            # Corners are at: (border_radius, border_radius), (w-border_radius, border_radius), etc.
             filter_complex = (
                 f"[0:v]crop={bg_w}:{bg_h}:{bg_x}:{bg_y},scale={out_width}:{out_height}:force_original_aspect_ratio=increase,"
                 f"crop={out_width}:{out_height}[bg];"
                 f"[0:v]crop={ov_w}:{ov_h}:{ov_x}:{ov_y},scale={overlay_width}:{overlay_height},"
-                f"format=rgba,geq=lum='lum(X,Y)':a='if(gt(abs(X-{overlay_width}/2),{overlay_width}/2-{border_radius})*gt(abs(Y-{overlay_height}/2),{overlay_height}/2-{border_radius})*gt(sqrt(pow(abs(X-{overlay_width}/2)-{overlay_width}/2+{border_radius},2)+pow(abs(Y-{overlay_height}/2)-{overlay_height}/2+{border_radius},2)),{border_radius}),0,255)'[ov];"
+                f"format=rgba,geq="
+                f"r='r(X,Y)':"
+                f"g='g(X,Y)':"
+                f"b='b(X,Y)':"
+                f"a='if("
+                f"gt(X,{border_radius})*lt(X,{overlay_width}-{border_radius})+"
+                f"gt(Y,{border_radius})*lt(Y,{overlay_height}-{border_radius})+"
+                f"lte(sqrt(pow(X-{border_radius},2)+pow(Y-{border_radius},2)),{border_radius})*lte(X,{border_radius})*lte(Y,{border_radius})+"
+                f"lte(sqrt(pow(X-{overlay_width}+{border_radius},2)+pow(Y-{border_radius},2)),{border_radius})*gte(X,{overlay_width}-{border_radius})*lte(Y,{border_radius})+"
+                f"lte(sqrt(pow(X-{border_radius},2)+pow(Y-{overlay_height}+{border_radius},2)),{border_radius})*lte(X,{border_radius})*gte(Y,{overlay_height}-{border_radius})+"
+                f"lte(sqrt(pow(X-{overlay_width}+{border_radius},2)+pow(Y-{overlay_height}+{border_radius},2)),{border_radius})*gte(X,{overlay_width}-{border_radius})*gte(Y,{overlay_height}-{border_radius})"
+                f",255,0)'"
+                f"[ov];"
                 f"[bg][ov]overlay={ov_out_x}:{ov_out_y}"
             )
 
