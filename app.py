@@ -403,14 +403,22 @@ def clip_shorts_endpoint():
     if not os.path.exists(video_path):
         return jsonify({"error": f"Video file not found: {video_path}"}), 400
 
-    result = clip_all_moments(video_path, moments)
-    return jsonify(result)
+    try:
+        result = clip_all_moments(video_path, moments)
+        return jsonify(result)
+    finally:
+        # Clean up the uploaded video file after processing
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+        except Exception as e:
+            print(f"Warning: Failed to clean up uploaded file {video_path}: {e}")
 
 
 @app.route('/api/shorts/process-vertical', methods=['POST'])
 def process_vertical_shorts():
     """
-    Process clipped videos into vertical shorts with stacked regions.
+    Process clipped videos into vertical shorts with stacked or PiP layout.
     Optionally adds animated captions if caption_options.enabled is true.
     Optionally removes silence/gaps if silence_removal.enabled is true.
 
@@ -421,14 +429,23 @@ def process_vertical_shorts():
             {"id": "content", "x": 5, "y": 5, "width": 60, "height": 90},
             {"id": "webcam", "x": 70, "y": 60, "width": 25, "height": 35}
         ],
-        "layout": {
+        "layout_mode": "stack",  # "stack" or "pip"
+        "layout": {  # For stack mode
             "topRegionId": "content",
             "splitRatio": 0.6
+        },
+        "pip_settings": {  # For pip mode
+            "backgroundRegionId": "content",
+            "overlayRegionId": "webcam",
+            "position": "bottom-right",
+            "size": 25,
+            "shape": "rounded",
+            "margin": 5
         },
         "caption_options": {  # Optional - for animated captions
             "enabled": true,
             "words_per_group": 3,
-            "silence_threshold": 0.5,  # Gap in seconds that forces new caption segment
+            "silence_threshold": 0.5,
             "font_size": 56,
             "primary_color": "white",
             "highlight_color": "yellow",
@@ -436,8 +453,8 @@ def process_vertical_shorts():
         },
         "silence_removal": {  # Optional - remove gaps/pauses
             "enabled": false,
-            "min_gap_duration": 0.4,  # Minimum gap in seconds to remove
-            "padding": 0.05  # Padding to keep around speech segments
+            "min_gap_duration": 0.4,
+            "padding": 0.05
         }
     }
 
@@ -447,17 +464,18 @@ def process_vertical_shorts():
 
     clips = data.get('clips')
     regions = data.get('regions')
+    layout_mode = data.get('layout_mode', 'stack')
     layout = data.get('layout')
+    pip_settings = data.get('pip_settings')
     caption_options = data.get('caption_options')
     silence_removal = data.get('silence_removal')
 
-    # Debug: Log caption_options received from frontend
-    print(f"[process-vertical] caption_options from frontend: {caption_options}")
+    # Debug logging
+    print(f"[process-vertical] layout_mode: {layout_mode}")
+    if pip_settings:
+        print(f"[process-vertical] pip_settings: {pip_settings}")
     if caption_options:
-        print(f"[process-vertical] background_enabled: {caption_options.get('background_enabled')}")
-        print(f"[process-vertical] background_color: {caption_options.get('background_color')}")
-        print(f"[process-vertical] background_opacity: {caption_options.get('background_opacity')}")
-
+        print(f"[process-vertical] caption_options: {caption_options}")
     if silence_removal:
         print(f"[process-vertical] silence_removal options: {silence_removal}")
 
@@ -481,11 +499,20 @@ def process_vertical_shorts():
             "missing_env": "OPENAI_API_KEY"
         }), 400
 
-    # Process clips to vertical format (with or without captions)
-    if caption_options and caption_options.get('enabled', False):
-        result = process_clips_to_vertical_with_captions(clips, regions, layout, caption_options)
+    # Process clips based on layout mode
+    if layout_mode == "pip" and pip_settings:
+        # Import PiP processing function
+        from services.shorts import process_clips_to_pip, process_clips_to_pip_with_captions
+        if caption_options and caption_options.get('enabled', False):
+            result = process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_options)
+        else:
+            result = process_clips_to_pip(clips, regions, pip_settings)
     else:
-        result = process_clips_to_vertical(clips, regions, layout)
+        # Stack mode (default)
+        if caption_options and caption_options.get('enabled', False):
+            result = process_clips_to_vertical_with_captions(clips, regions, layout, caption_options)
+        else:
+            result = process_clips_to_vertical(clips, regions, layout)
 
     # Apply silence removal if requested (after vertical processing)
     if silence_removal and silence_removal.get('enabled', False):
@@ -1054,17 +1081,25 @@ def bestof_compile():
     if not moments:
         return jsonify({"error": "No moments provided"}), 400
 
-    result = create_bestof_compilation(
-        video_path,
-        moments,
-        use_crossfade=use_crossfade,
-        crossfade_duration=crossfade_duration
-    )
+    try:
+        result = create_bestof_compilation(
+            video_path,
+            moments,
+            use_crossfade=use_crossfade,
+            crossfade_duration=crossfade_duration
+        )
 
-    if "error" in result:
-        return jsonify(result), 400
+        if "error" in result:
+            return jsonify(result), 400
 
-    return jsonify(result)
+        return jsonify(result)
+    finally:
+        # Clean up the uploaded video file after processing
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+        except Exception as e:
+            print(f"Warning: Failed to clean up uploaded file {video_path}: {e}")
 
 
 @app.route('/api/bestof/process', methods=['POST'])
@@ -1106,20 +1141,28 @@ def bestof_process_full():
     if not video_path or not os.path.exists(video_path):
         return jsonify({"error": "Video file not found"}), 400
 
-    result = process_video_for_bestof(
-        video_url,
-        video_path=video_path,
-        num_clips=num_clips,
-        target_duration_minutes=target_duration,
-        use_crossfade=use_crossfade,
-        crossfade_duration=crossfade_duration,
-        custom_prompt=custom_prompt
-    )
+    try:
+        result = process_video_for_bestof(
+            video_url,
+            video_path=video_path,
+            num_clips=num_clips,
+            target_duration_minutes=target_duration,
+            use_crossfade=use_crossfade,
+            crossfade_duration=crossfade_duration,
+            custom_prompt=custom_prompt
+        )
 
-    if "error" in result:
-        return jsonify(result), 400
+        if "error" in result:
+            return jsonify(result), 400
 
-    return jsonify(result)
+        return jsonify(result)
+    finally:
+        # Clean up the uploaded video file after processing
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+        except Exception as e:
+            print(f"Warning: Failed to clean up uploaded file {video_path}: {e}")
 
 
 # --- Captions Route (shared by shorts and best-of) ---

@@ -796,6 +796,313 @@ def process_clips_to_vertical_with_captions(clips, regions, layout_config, capti
     return {"processed_clips": results}
 
 
+def process_clip_to_pip(video_data_base64, regions, pip_settings):
+    """
+    Process a clipped video into a vertical short with Picture-in-Picture layout.
+
+    Args:
+        video_data_base64: Base64 encoded video data
+        regions: List of region dicts with id, x, y, width, height (percentages)
+        pip_settings: Dict with PiP configuration:
+            - backgroundRegionId: Region ID for the background (fills frame)
+            - overlayRegionId: Region ID for the overlay (small PiP)
+            - position: "top-left", "top-right", "bottom-left", "bottom-right"
+            - size: Overlay size as percentage of output width (10-40)
+            - shape: "rounded" or "circle"
+            - margin: Margin from edges as percentage (default 5)
+
+    Returns:
+        Dict with success status and processed video as base64
+    """
+    try:
+        # Parse settings
+        bg_region_id = pip_settings.get('backgroundRegionId', 'content')
+        overlay_region_id = pip_settings.get('overlayRegionId', 'webcam')
+        position = pip_settings.get('position', 'bottom-right')
+        overlay_size_pct = pip_settings.get('size', 25)
+        shape = pip_settings.get('shape', 'rounded')
+        margin_pct = pip_settings.get('margin', 5)
+
+        # Find regions
+        bg_region = next((r for r in regions if r['id'] == bg_region_id), None)
+        overlay_region = next((r for r in regions if r['id'] == overlay_region_id), None)
+
+        if not bg_region or not overlay_region:
+            return {"error": "Could not find specified regions"}
+
+        # Decode video to temp file
+        video_data = base64.b64decode(video_data_base64)
+        input_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        input_file.write(video_data)
+        input_file.close()
+        input_path = input_file.name
+
+        # Get video dimensions using ffprobe
+        probe_cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                     '-show_entries', 'stream=width,height', '-of', 'csv=p=0', input_path]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        if probe_result.returncode != 0:
+            os.unlink(input_path)
+            return {"error": f"Failed to probe video: {probe_result.stderr}"}
+
+        src_width, src_height = map(int, probe_result.stdout.strip().split(','))
+
+        # Output dimensions (vertical 9:16)
+        out_width = 1080
+        out_height = 1920
+
+        # Calculate background crop (fills the entire 9:16 frame)
+        bg_x = int(src_width * bg_region['x'] / 100)
+        bg_y = int(src_height * bg_region['y'] / 100)
+        bg_w = int(src_width * bg_region['width'] / 100)
+        bg_h = int(src_height * bg_region['height'] / 100)
+
+        # Calculate overlay crop
+        ov_x = int(src_width * overlay_region['x'] / 100)
+        ov_y = int(src_height * overlay_region['y'] / 100)
+        ov_w = int(src_width * overlay_region['width'] / 100)
+        ov_h = int(src_height * overlay_region['height'] / 100)
+
+        # Calculate overlay output size
+        overlay_width = int(out_width * overlay_size_pct / 100)
+        if shape == "circle":
+            overlay_height = overlay_width  # Square for circle
+        else:
+            # Maintain aspect ratio of the overlay region
+            overlay_ar = ov_w / ov_h if ov_h > 0 else 1
+            overlay_height = int(overlay_width / overlay_ar)
+
+        # Calculate overlay position
+        margin = int(out_width * margin_pct / 100)
+        if position == "top-left":
+            ov_out_x = margin
+            ov_out_y = margin
+        elif position == "top-right":
+            ov_out_x = out_width - overlay_width - margin
+            ov_out_y = margin
+        elif position == "bottom-left":
+            ov_out_x = margin
+            ov_out_y = out_height - overlay_height - margin
+        else:  # bottom-right (default)
+            ov_out_x = out_width - overlay_width - margin
+            ov_out_y = out_height - overlay_height - margin
+
+        # Build ffmpeg filter
+        # 1. Crop and scale background to fill 9:16
+        # 2. Crop overlay region
+        # 3. Scale overlay to desired size
+        # 4. Apply shape (rounded corners or circle mask)
+        # 5. Overlay on top of background
+
+        if shape == "circle":
+            # Circle mask using geq filter
+            filter_complex = (
+                f"[0:v]crop={bg_w}:{bg_h}:{bg_x}:{bg_y},scale={out_width}:{out_height}:force_original_aspect_ratio=increase,"
+                f"crop={out_width}:{out_height}[bg];"
+                f"[0:v]crop={ov_w}:{ov_h}:{ov_x}:{ov_y},scale={overlay_width}:{overlay_height},"
+                f"format=rgba,geq=lum='lum(X,Y)':a='if(gt(sqrt(pow(X-{overlay_width}/2,2)+pow(Y-{overlay_height}/2,2)),{overlay_width}/2),0,255)'[ov];"
+                f"[bg][ov]overlay={ov_out_x}:{ov_out_y}"
+            )
+        else:
+            # Rounded corners
+            border_radius = min(overlay_width, overlay_height) // 6
+            filter_complex = (
+                f"[0:v]crop={bg_w}:{bg_h}:{bg_x}:{bg_y},scale={out_width}:{out_height}:force_original_aspect_ratio=increase,"
+                f"crop={out_width}:{out_height}[bg];"
+                f"[0:v]crop={ov_w}:{ov_h}:{ov_x}:{ov_y},scale={overlay_width}:{overlay_height},"
+                f"format=rgba,geq=lum='lum(X,Y)':a='if(gt(abs(X-{overlay_width}/2),{overlay_width}/2-{border_radius})*gt(abs(Y-{overlay_height}/2),{overlay_height}/2-{border_radius})*gt(sqrt(pow(abs(X-{overlay_width}/2)-{overlay_width}/2+{border_radius},2)+pow(abs(Y-{overlay_height}/2)-{overlay_height}/2+{border_radius},2)),{border_radius}),0,255)'[ov];"
+                f"[bg][ov]overlay={ov_out_x}:{ov_out_y}"
+            )
+
+        # Create output file
+        output_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        output_file.close()
+        output_path = output_file.name
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', input_path,
+            '-filter_complex', filter_complex,
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        # Clean up input
+        os.unlink(input_path)
+
+        if result.returncode != 0:
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+            return {"error": f"FFmpeg PiP processing failed: {result.stderr}"}
+
+        # Read output and convert to base64
+        with open(output_path, 'rb') as f:
+            output_data = f.read()
+
+        output_base64 = base64.b64encode(output_data).decode('utf-8')
+        file_size = len(output_data)
+
+        os.unlink(output_path)
+
+        return {
+            "success": True,
+            "video_data": output_base64,
+            "file_size": file_size,
+            "dimensions": {"width": out_width, "height": out_height},
+            "layout_mode": "pip"
+        }
+
+    except Exception as e:
+        return {"error": f"Error processing PiP video: {str(e)}"}
+
+
+def process_clips_to_pip(clips, regions, pip_settings):
+    """
+    Process multiple clips into vertical shorts with PiP layout.
+
+    Args:
+        clips: List of clip results from clip_all_moments
+        regions: Region selections
+        pip_settings: PiP configuration
+
+    Returns:
+        List of processed results
+    """
+    results = []
+    for clip in clips:
+        clip_result = clip.get('clip_result', {})
+        if not clip_result.get('success') or not clip_result.get('video_data'):
+            results.append({
+                "moment": clip.get('moment'),
+                "error": "No video data available for this clip"
+            })
+            continue
+
+        processed = process_clip_to_pip(
+            clip_result['video_data'],
+            regions,
+            pip_settings
+        )
+
+        results.append({
+            "moment": clip.get('moment'),
+            "original_filename": clip_result.get('filename', 'clip.mp4'),
+            "processed": processed
+        })
+
+    return {"processed_clips": results}
+
+
+def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_options=None):
+    """
+    Process multiple clips into vertical shorts with PiP layout and animated captions.
+
+    Args:
+        clips: List of clip results from clip_all_moments
+        regions: Region selections
+        pip_settings: PiP configuration
+        caption_options: Caption styling options
+
+    Returns:
+        List of processed results
+    """
+    results = []
+    for clip in clips:
+        clip_result = clip.get('clip_result', {})
+        if not clip_result.get('success') or not clip_result.get('video_data'):
+            results.append({
+                "moment": clip.get('moment'),
+                "error": "No video data available for this clip"
+            })
+            continue
+
+        # First, process to PiP layout
+        pip_result = process_clip_to_pip(
+            clip_result['video_data'],
+            regions,
+            pip_settings
+        )
+
+        if not pip_result.get('success'):
+            results.append({
+                "moment": clip.get('moment'),
+                "original_filename": clip_result.get('filename', 'clip.mp4'),
+                "processed": pip_result
+            })
+            continue
+
+        # Then add captions to the PiP video
+        transcription_result = transcribe_video_for_captions(
+            pip_result['video_data'],
+            words_per_group=caption_options.get('words_per_group', 3) if caption_options else 3,
+            silence_threshold=caption_options.get('silence_threshold', 0.5) if caption_options else 0.5
+        )
+
+        if "error" in transcription_result:
+            results.append({
+                "moment": clip.get('moment'),
+                "original_filename": clip_result.get('filename', 'clip.mp4'),
+                "processed": {
+                    **pip_result,
+                    "caption_error": transcription_result['error']
+                }
+            })
+            continue
+
+        # Generate captions and overlay
+        captions = transcription_result.get('captions', [])
+        if not captions:
+            results.append({
+                "moment": clip.get('moment'),
+                "original_filename": clip_result.get('filename', 'clip.mp4'),
+                "processed": {
+                    **pip_result,
+                    "caption_error": "No captions generated"
+                }
+            })
+            continue
+
+        # Apply captions
+        caption_result = create_caption_overlay_video(
+            pip_result['video_data'],
+            captions,
+            caption_options
+        )
+
+        if "error" in caption_result:
+            results.append({
+                "moment": clip.get('moment'),
+                "original_filename": clip_result.get('filename', 'clip.mp4'),
+                "processed": {
+                    **pip_result,
+                    "caption_error": caption_result['error']
+                }
+            })
+            continue
+
+        results.append({
+            "moment": clip.get('moment'),
+            "original_filename": clip_result.get('filename', 'clip.mp4'),
+            "processed": {
+                "success": True,
+                "video_data": caption_result['video_data'],
+                "file_size": caption_result['file_size'],
+                "dimensions": pip_result.get('dimensions', {"width": 1080, "height": 1920}),
+                "layout_mode": "pip",
+                "captions_applied": True
+            }
+        })
+
+    return {"processed_clips": results}
+
+
 def remove_silence_from_video(video_data_base64, min_gap_duration=0.4, padding=0.05):
     """
     Remove silent gaps from a video using Whisper word-level timestamps.

@@ -79,9 +79,22 @@ export default function RegionSelectorPage() {
   const [currentClipIndex, setCurrentClipIndex] = useState(0);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
 
-  // Region selection state
+  // Layout mode state
+  const [layoutMode, setLayoutMode] = useState<"stack" | "pip">("stack");
+
+  // Stack mode settings
   const [splitRatio, setSplitRatio] = useState(0.6);
   const [topRegionId, setTopRegionId] = useState("content");
+
+  // PiP mode settings
+  const [pipSettings, setPipSettings] = useState({
+    backgroundRegionId: "content", // Which region fills the background
+    overlayRegionId: "webcam",     // Which region is the overlay
+    position: "bottom-right" as "top-left" | "top-right" | "bottom-left" | "bottom-right",
+    size: 25, // Percentage of width (10-40%)
+    shape: "rounded" as "rounded" | "circle",
+    margin: 5, // Percentage margin from edges
+  });
 
   // Calculate the correct aspect ratio for a region based on its split portion
   // Output is 9:16 (1080x1920), source is 16:9
@@ -474,10 +487,12 @@ export default function RegionSelectorPage() {
               width: r.width,
               height: r.height,
             })),
+            layout_mode: layoutMode,
             layout: {
               topRegionId,
               splitRatio,
             },
+            pip_settings: layoutMode === "pip" ? pipSettings : undefined,
             caption_options: captionOptions,
             silence_removal: silenceRemoval,
           }),
@@ -728,77 +743,250 @@ export default function RegionSelectorPage() {
 
           {/* Preview & Controls */}
           <div className="space-y-3">
-            {/* Layout Order + Split Ratio + Preview Combined */}
+            {/* Layout Mode + Controls + Preview */}
             <div className="p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold text-white">Layout</h3>
+              </div>
+
+              {/* Mode Selector */}
+              <div className="flex gap-1.5 mb-3">
                 <button
-                  onClick={swapRegions}
-                  className="p-1 bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
-                  title="Swap positions"
-                >
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-                  </svg>
-                </button>
-              </div>
-              <div className="flex gap-2 mb-2">
-                <div
-                  className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-xs"
-                  style={{ backgroundColor: `${topRegion?.color}22`, border: `1px solid ${topRegion?.color}` }}
-                >
-                  <div className="w-2 h-2 rounded" style={{ backgroundColor: topRegion?.color }} />
-                  <span className="text-white">{topRegion?.label}</span>
-                  <span className="text-zinc-400 ml-auto">{Math.round(splitRatio * 100)}%</span>
-                </div>
-                <div
-                  className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-xs"
-                  style={{ backgroundColor: `${bottomRegion?.color}22`, border: `1px solid ${bottomRegion?.color}` }}
-                >
-                  <div className="w-2 h-2 rounded" style={{ backgroundColor: bottomRegion?.color }} />
-                  <span className="text-white">{bottomRegion?.label}</span>
-                  <span className="text-zinc-400 ml-auto">{Math.round((1 - splitRatio) * 100)}%</span>
-                </div>
-              </div>
-              <div className="flex gap-1.5">
-                {[50, 60, 70].map((ratio) => (
-                  <button
-                    key={ratio}
-                    onClick={() => setSplitRatio(ratio / 100)}
-                    className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${Math.round(splitRatio * 100) === ratio
+                  onClick={() => setLayoutMode("stack")}
+                  className={`flex-1 px-2 py-1.5 text-xs rounded transition-colors ${
+                    layoutMode === "stack"
                       ? "bg-purple-600 text-white"
                       : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
-                      }`}
-                  >
-                    {ratio}/{100 - ratio}
-                  </button>
-                ))}
+                  }`}
+                >
+                  Stack
+                </button>
+                <button
+                  onClick={() => setLayoutMode("pip")}
+                  className={`flex-1 px-2 py-1.5 text-xs rounded transition-colors ${
+                    layoutMode === "pip"
+                      ? "bg-purple-600 text-white"
+                      : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                  }`}
+                >
+                  Picture-in-Picture
+                </button>
               </div>
+
+              {/* Stack Mode Controls */}
+              {layoutMode === "stack" && (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-400">Regions</span>
+                    <button
+                      onClick={swapRegions}
+                      className="p-1 bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
+                      title="Swap positions"
+                    >
+                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mb-2">
+                    <div
+                      className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-xs"
+                      style={{ backgroundColor: `${topRegion?.color}22`, border: `1px solid ${topRegion?.color}` }}
+                    >
+                      <div className="w-2 h-2 rounded" style={{ backgroundColor: topRegion?.color }} />
+                      <span className="text-white">{topRegion?.label}</span>
+                      <span className="text-zinc-400 ml-auto">{Math.round(splitRatio * 100)}%</span>
+                    </div>
+                    <div
+                      className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-xs"
+                      style={{ backgroundColor: `${bottomRegion?.color}22`, border: `1px solid ${bottomRegion?.color}` }}
+                    >
+                      <div className="w-2 h-2 rounded" style={{ backgroundColor: bottomRegion?.color }} />
+                      <span className="text-white">{bottomRegion?.label}</span>
+                      <span className="text-zinc-400 ml-auto">{Math.round((1 - splitRatio) * 100)}%</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[50, 60, 70].map((ratio) => (
+                      <button
+                        key={ratio}
+                        onClick={() => setSplitRatio(ratio / 100)}
+                        className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${Math.round(splitRatio * 100) === ratio
+                          ? "bg-purple-600 text-white"
+                          : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                          }`}
+                      >
+                        {ratio}/{100 - ratio}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* PiP Mode Controls */}
+              {layoutMode === "pip" && (
+                <div className="space-y-3">
+                  {/* Background/Overlay Selection */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-400 w-16">Background</span>
+                      <div
+                        className="flex-1 flex items-center gap-1.5 px-2 py-1 rounded text-xs"
+                        style={{
+                          backgroundColor: `${regions.find(r => r.id === pipSettings.backgroundRegionId)?.color}22`,
+                          border: `1px solid ${regions.find(r => r.id === pipSettings.backgroundRegionId)?.color}`
+                        }}
+                      >
+                        <div className="w-2 h-2 rounded" style={{ backgroundColor: regions.find(r => r.id === pipSettings.backgroundRegionId)?.color }} />
+                        <span className="text-white">{regions.find(r => r.id === pipSettings.backgroundRegionId)?.label}</span>
+                      </div>
+                      <button
+                        onClick={() => setPipSettings(prev => ({
+                          ...prev,
+                          backgroundRegionId: prev.overlayRegionId,
+                          overlayRegionId: prev.backgroundRegionId
+                        }))}
+                        className="p-1 bg-zinc-700 hover:bg-zinc-600 rounded transition-colors"
+                        title="Swap"
+                      >
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-zinc-400 w-16">Overlay</span>
+                      <div
+                        className="flex-1 flex items-center gap-1.5 px-2 py-1 rounded text-xs"
+                        style={{
+                          backgroundColor: `${regions.find(r => r.id === pipSettings.overlayRegionId)?.color}22`,
+                          border: `1px solid ${regions.find(r => r.id === pipSettings.overlayRegionId)?.color}`
+                        }}
+                      >
+                        <div className="w-2 h-2 rounded" style={{ backgroundColor: regions.find(r => r.id === pipSettings.overlayRegionId)?.color }} />
+                        <span className="text-white">{regions.find(r => r.id === pipSettings.overlayRegionId)?.label}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Corner Position */}
+                  <div>
+                    <span className="text-xs text-zinc-400">Position</span>
+                    <div className="grid grid-cols-2 gap-1.5 mt-1">
+                      {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map((pos) => (
+                        <button
+                          key={pos}
+                          onClick={() => setPipSettings(prev => ({ ...prev, position: pos }))}
+                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                            pipSettings.position === pos
+                              ? "bg-purple-600 text-white"
+                              : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                          }`}
+                        >
+                          {pos.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Size Slider */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-zinc-400">Overlay Size</span>
+                      <span className="text-xs text-purple-400 font-mono">{pipSettings.size}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="40"
+                      step="5"
+                      value={pipSettings.size}
+                      onChange={(e) => setPipSettings(prev => ({ ...prev, size: parseInt(e.target.value) }))}
+                      className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                  </div>
+
+                  {/* Shape */}
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setPipSettings(prev => ({ ...prev, shape: "rounded" }))}
+                      className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                        pipSettings.shape === "rounded"
+                          ? "bg-purple-600 text-white"
+                          : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                      }`}
+                    >
+                      Rounded
+                    </button>
+                    <button
+                      onClick={() => setPipSettings(prev => ({ ...prev, shape: "circle" }))}
+                      className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
+                        pipSettings.shape === "circle"
+                          ? "bg-purple-600 text-white"
+                          : "bg-zinc-700 text-zinc-300 hover:bg-zinc-600"
+                      }`}
+                    >
+                      Circle
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Layout Preview - Centered */}
               <div className="flex flex-col items-center pt-3 mt-3 border-t border-zinc-700">
                 <div
-                  className="w-16 bg-zinc-900 rounded overflow-hidden border border-zinc-600"
+                  className="relative w-16 bg-zinc-900 rounded overflow-hidden border border-zinc-600"
                   style={{ aspectRatio: "9/16" }}
                 >
-                  <div
-                    className="w-full flex items-center justify-center text-[10px] text-white"
-                    style={{
-                      height: `${splitRatio * 100}%`,
-                      backgroundColor: `${topRegion?.color}66`,
-                      borderBottom: "1px solid rgba(255,255,255,0.2)",
-                    }}
-                  >
-                    {topRegion?.label.split(" ")[0]}
-                  </div>
-                  <div
-                    className="w-full flex items-center justify-center text-[10px] text-white"
-                    style={{
-                      height: `${(1 - splitRatio) * 100}%`,
-                      backgroundColor: `${bottomRegion?.color}66`,
-                    }}
-                  >
-                    {bottomRegion?.label.split(" ")[0]}
-                  </div>
+                  {layoutMode === "stack" ? (
+                    <>
+                      <div
+                        className="w-full flex items-center justify-center text-[10px] text-white"
+                        style={{
+                          height: `${splitRatio * 100}%`,
+                          backgroundColor: `${topRegion?.color}66`,
+                          borderBottom: "1px solid rgba(255,255,255,0.2)",
+                        }}
+                      >
+                        {topRegion?.label.split(" ")[0]}
+                      </div>
+                      <div
+                        className="w-full flex items-center justify-center text-[10px] text-white"
+                        style={{
+                          height: `${(1 - splitRatio) * 100}%`,
+                          backgroundColor: `${bottomRegion?.color}66`,
+                        }}
+                      >
+                        {bottomRegion?.label.split(" ")[0]}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* PiP Preview */}
+                      <div
+                        className="absolute inset-0 flex items-center justify-center text-[8px] text-white"
+                        style={{ backgroundColor: `${regions.find(r => r.id === pipSettings.backgroundRegionId)?.color}66` }}
+                      >
+                        {regions.find(r => r.id === pipSettings.backgroundRegionId)?.label.split(" ")[0]}
+                      </div>
+                      <div
+                        className={`absolute flex items-center justify-center text-[6px] text-white ${
+                          pipSettings.shape === "circle" ? "rounded-full" : "rounded"
+                        }`}
+                        style={{
+                          width: `${pipSettings.size}%`,
+                          aspectRatio: pipSettings.shape === "circle" ? "1/1" : "4/3",
+                          backgroundColor: `${regions.find(r => r.id === pipSettings.overlayRegionId)?.color}`,
+                          border: "1px solid rgba(255,255,255,0.3)",
+                          ...(pipSettings.position === "top-left" && { top: "4px", left: "4px" }),
+                          ...(pipSettings.position === "top-right" && { top: "4px", right: "4px" }),
+                          ...(pipSettings.position === "bottom-left" && { bottom: "4px", left: "4px" }),
+                          ...(pipSettings.position === "bottom-right" && { bottom: "4px", right: "4px" }),
+                        }}
+                      >
+                      </div>
+                    </>
+                  )}
                 </div>
                 <p className="text-xs text-zinc-500 mt-2">1080×1920</p>
               </div>
@@ -1129,7 +1317,7 @@ export default function RegionSelectorPage() {
                     </div>
                     <input
                       type="range"
-                      min="0.2"
+                      min="0.1"
                       max="1.5"
                       step="0.1"
                       value={silenceRemoval.min_gap_duration}
