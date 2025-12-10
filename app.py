@@ -463,7 +463,9 @@ def process_vertical_shorts():
     data = request.json
 
     clips = data.get('clips')
-    regions = data.get('regions')
+    # Support per-clip regions (new) or single regions array (legacy)
+    all_clip_regions = data.get('all_clip_regions')  # Array of region arrays, one per clip
+    regions = data.get('regions')  # Legacy: same regions for all clips
     layout_mode = data.get('layout_mode', 'stack')
     layout = data.get('layout')
     pip_settings = data.get('pip_settings')
@@ -472,6 +474,8 @@ def process_vertical_shorts():
 
     # Debug logging
     print(f"[process-vertical] layout_mode: {layout_mode}")
+    if all_clip_regions:
+        print(f"[process-vertical] Using per-clip regions for {len(all_clip_regions)} clips")
     if pip_settings:
         print(f"[process-vertical] pip_settings: {pip_settings}")
     if caption_options:
@@ -482,8 +486,22 @@ def process_vertical_shorts():
     if not clips:
         return jsonify({"error": "No clips provided"}), 400
 
-    if not regions or len(regions) < 2:
-        return jsonify({"error": "Two regions required"}), 400
+    # Validate regions - either all_clip_regions or legacy regions
+    if all_clip_regions:
+        # Validate per-clip regions
+        if len(all_clip_regions) != len(clips):
+            return jsonify({"error": f"Mismatch: {len(clips)} clips but {len(all_clip_regions)} region sets"}), 400
+        for i, clip_regions in enumerate(all_clip_regions):
+            if not clip_regions or len(clip_regions) < 2:
+                return jsonify({"error": f"Two regions required for clip {i+1}"}), 400
+    elif regions:
+        # Legacy mode: use same regions for all clips
+        if len(regions) < 2:
+            return jsonify({"error": "Two regions required"}), 400
+        # Convert to per-clip format for uniform processing
+        all_clip_regions = [regions for _ in clips]
+    else:
+        return jsonify({"error": "No regions provided"}), 400
 
     if not layout:
         layout = {"topRegionId": "content", "splitRatio": 0.6}
@@ -500,19 +518,20 @@ def process_vertical_shorts():
         }), 400
 
     # Process clips based on layout mode
+    # Pass all_clip_regions for per-clip region support
     if layout_mode == "pip" and pip_settings:
         # Import PiP processing function
         from services.shorts import process_clips_to_pip, process_clips_to_pip_with_captions
         if caption_options and caption_options.get('enabled', False):
-            result = process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_options)
+            result = process_clips_to_pip_with_captions(clips, None, pip_settings, caption_options, all_clip_regions=all_clip_regions)
         else:
-            result = process_clips_to_pip(clips, regions, pip_settings)
+            result = process_clips_to_pip(clips, None, pip_settings, all_clip_regions=all_clip_regions)
     else:
         # Stack mode (default)
         if caption_options and caption_options.get('enabled', False):
-            result = process_clips_to_vertical_with_captions(clips, regions, layout, caption_options)
+            result = process_clips_to_vertical_with_captions(clips, None, layout, caption_options, all_clip_regions=all_clip_regions)
         else:
-            result = process_clips_to_vertical(clips, regions, layout)
+            result = process_clips_to_vertical(clips, None, layout, all_clip_regions=all_clip_regions)
 
     # Apply silence removal if requested (after vertical processing)
     if silence_removal and silence_removal.get('enabled', False):

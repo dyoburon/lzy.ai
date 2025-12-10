@@ -532,20 +532,21 @@ def process_clip_to_vertical(video_data_base64, regions, layout_config):
         return {"error": f"Error processing video: {str(e)}"}
 
 
-def process_clips_to_vertical(clips, regions, layout_config):
+def process_clips_to_vertical(clips, regions, layout_config, all_clip_regions=None):
     """
     Process multiple clips into vertical shorts.
 
     Args:
         clips: List of clip results from clip_all_moments
-        regions: Region selections
+        regions: Region selections (used for all clips if all_clip_regions not provided)
         layout_config: Layout configuration
+        all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
 
     Returns:
         List of processed results
     """
     results = []
-    for clip in clips:
+    for i, clip in enumerate(clips):
         clip_result = clip.get('clip_result', {})
         if not clip_result.get('success') or not clip_result.get('video_data'):
             results.append({
@@ -554,9 +555,12 @@ def process_clips_to_vertical(clips, regions, layout_config):
             })
             continue
 
+        # Use per-clip regions if provided, otherwise fall back to shared regions
+        clip_regions = all_clip_regions[i] if all_clip_regions else regions
+
         processed = process_clip_to_vertical(
             clip_result['video_data'],
-            regions,
+            clip_regions,
             layout_config
         )
 
@@ -757,21 +761,22 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
     }
 
 
-def process_clips_to_vertical_with_captions(clips, regions, layout_config, caption_options=None):
+def process_clips_to_vertical_with_captions(clips, regions, layout_config, caption_options=None, all_clip_regions=None):
     """
     Process multiple clips into vertical shorts with animated captions.
 
     Args:
         clips: List of clip results from clip_all_moments
-        regions: Region selections
+        regions: Region selections (used for all clips if all_clip_regions not provided)
         layout_config: Layout configuration
         caption_options: Caption styling options
+        all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
 
     Returns:
         List of processed results
     """
     results = []
-    for clip in clips:
+    for i, clip in enumerate(clips):
         clip_result = clip.get('clip_result', {})
         if not clip_result.get('success') or not clip_result.get('video_data'):
             results.append({
@@ -780,9 +785,12 @@ def process_clips_to_vertical_with_captions(clips, regions, layout_config, capti
             })
             continue
 
+        # Use per-clip regions if provided, otherwise fall back to shared regions
+        clip_regions = all_clip_regions[i] if all_clip_regions else regions
+
         processed = process_clip_to_vertical_with_captions(
             clip_result['video_data'],
-            regions,
+            clip_regions,
             layout_config,
             caption_options
         )
@@ -987,20 +995,21 @@ def process_clip_to_pip(video_data_base64, regions, pip_settings):
         return {"error": f"Error processing PiP video: {str(e)}"}
 
 
-def process_clips_to_pip(clips, regions, pip_settings):
+def process_clips_to_pip(clips, regions, pip_settings, all_clip_regions=None):
     """
     Process multiple clips into vertical shorts with PiP layout.
 
     Args:
         clips: List of clip results from clip_all_moments
-        regions: Region selections
+        regions: Region selections (used for all clips if all_clip_regions not provided)
         pip_settings: PiP configuration
+        all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
 
     Returns:
         List of processed results
     """
     results = []
-    for clip in clips:
+    for i, clip in enumerate(clips):
         clip_result = clip.get('clip_result', {})
         if not clip_result.get('success') or not clip_result.get('video_data'):
             results.append({
@@ -1009,9 +1018,12 @@ def process_clips_to_pip(clips, regions, pip_settings):
             })
             continue
 
+        # Use per-clip regions if provided, otherwise fall back to shared regions
+        clip_regions = all_clip_regions[i] if all_clip_regions else regions
+
         processed = process_clip_to_pip(
             clip_result['video_data'],
-            regions,
+            clip_regions,
             pip_settings
         )
 
@@ -1024,21 +1036,22 @@ def process_clips_to_pip(clips, regions, pip_settings):
     return {"processed_clips": results}
 
 
-def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_options=None):
+def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_options=None, all_clip_regions=None):
     """
     Process multiple clips into vertical shorts with PiP layout and animated captions.
 
     Args:
         clips: List of clip results from clip_all_moments
-        regions: Region selections
+        regions: Region selections (used for all clips if all_clip_regions not provided)
         pip_settings: PiP configuration
         caption_options: Caption styling options
+        all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
 
     Returns:
         List of processed results
     """
     results = []
-    for clip in clips:
+    for i, clip in enumerate(clips):
         clip_result = clip.get('clip_result', {})
         if not clip_result.get('success') or not clip_result.get('video_data'):
             results.append({
@@ -1047,10 +1060,13 @@ def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_opt
             })
             continue
 
+        # Use per-clip regions if provided, otherwise fall back to shared regions
+        clip_regions = all_clip_regions[i] if all_clip_regions else regions
+
         # First, process to PiP layout
         pip_result = process_clip_to_pip(
             clip_result['video_data'],
-            regions,
+            clip_regions,
             pip_settings
         )
 

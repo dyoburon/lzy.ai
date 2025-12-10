@@ -132,36 +132,47 @@ export default function RegionSelectorPage() {
     }
   }, [getTargetAspectRatio]);
 
-  // Default regions sized to match 9:16 output with 60/40 split
-  const [regions, setRegions] = useState<Region[]>(() => {
-    // For 60% top (content): AR = 9/(16*0.6) = 0.9375, in source terms = 0.9375 * 0.5625 = 0.527
-    // height=100%, width = 100 * 0.527 = 52.7%
-    // For 40% bottom (webcam): AR = 9/(16*0.4) = 1.406, in source terms = 1.406 * 0.5625 = 0.791
-    // height=100%, width = 100 * 0.791 = 79.1% (but we want it smaller, so use 56% height)
-    // For webcam at 56% height: width = 56 * 0.791 = 44.3%
-    return [
-      {
-        id: "content",
-        label: "Screen Content",
-        x: 2,
-        y: 0,
-        width: 53,
-        height: 100,
-        color: "#8b5cf6",
-        aspectLocked: true,
-      },
-      {
-        id: "webcam",
-        label: "Webcam",
-        x: 55,
-        y: 22,
-        width: 44,
-        height: 56,
-        color: "#22c55e",
-        aspectLocked: true,
-      },
-    ];
-  });
+  // Default region template
+  const getDefaultRegions = (): Region[] => [
+    {
+      id: "content",
+      label: "Screen Content",
+      x: 2,
+      y: 0,
+      width: 53,
+      height: 100,
+      color: "#8b5cf6",
+      aspectLocked: true,
+    },
+    {
+      id: "webcam",
+      label: "Webcam",
+      x: 55,
+      y: 22,
+      width: 44,
+      height: 56,
+      color: "#22c55e",
+      aspectLocked: true,
+    },
+  ];
+
+  // Per-clip regions - each clip can have different region positions
+  const [allClipRegions, setAllClipRegions] = useState<Region[][]>([]);
+
+  // Current clip's regions (derived from allClipRegions)
+  const regions = allClipRegions[currentClipIndex] || getDefaultRegions();
+
+  // Update regions for the current clip
+  const setRegions = (newRegions: Region[] | ((prev: Region[]) => Region[])) => {
+    setAllClipRegions(prev => {
+      const updated = [...prev];
+      const currentRegions = updated[currentClipIndex] || getDefaultRegions();
+      updated[currentClipIndex] = typeof newRegions === 'function'
+        ? newRegions(currentRegions)
+        : newRegions;
+      return updated;
+    });
+  };
 
   const [dragState, setDragState] = useState<DragState>({
     isDragging: false,
@@ -233,6 +244,8 @@ export default function RegionSelectorPage() {
     const pendingClips = getPendingClips();
     if (pendingClips && pendingClips.length > 0) {
       setClips(pendingClips);
+      // Initialize per-clip regions with defaults for each clip
+      setAllClipRegions(pendingClips.map(() => getDefaultRegions()));
       // Create preview URL for first clip
       if (pendingClips[0].clip_result?.video_data) {
         const blob = base64ToBlob(pendingClips[0].clip_result.video_data, "video/mp4");
@@ -480,13 +493,16 @@ export default function RegionSelectorPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             clips: clips,
-            regions: regions.map((r) => ({
-              id: r.id,
-              x: r.x,
-              y: r.y,
-              width: r.width,
-              height: r.height,
-            })),
+            // Send per-clip regions - each clip gets its own region positions
+            all_clip_regions: allClipRegions.map((clipRegions) =>
+              clipRegions.map((r) => ({
+                id: r.id,
+                x: r.x,
+                y: r.y,
+                width: r.width,
+                height: r.height,
+              }))
+            ),
             layout_mode: layoutMode,
             layout: {
               topRegionId,
