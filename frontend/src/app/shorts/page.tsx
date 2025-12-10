@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { setPendingClips } from "@/lib/clipStore";
+import { setPendingClips, getPendingIdea, clearPendingIdea } from "@/lib/clipStore";
 
 interface Moment {
   start_time: string;
@@ -94,6 +94,15 @@ export default function ShortsPage() {
   // Drag and drop state
   const [isDragging, setIsDragging] = useState(false);
 
+  // Idea context (from idea generator)
+  const [ideaContext, setIdeaContext] = useState<{
+    title: string;
+    hook: string;
+    concept?: string;
+    source_timestamp?: string;
+  } | null>(null);
+  const [processingIdea, setProcessingIdea] = useState(false);
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
 
   // Navigate to region selector with clips
@@ -127,6 +136,59 @@ export default function ShortsPage() {
     };
     checkConfig();
   }, [API_URL]);
+
+  // Check for pending idea from idea generator
+  useEffect(() => {
+    const pendingIdea = getPendingIdea();
+    if (pendingIdea && pendingIdea.type === 'shorts') {
+      setIdeaContext({
+        title: pendingIdea.title,
+        hook: pendingIdea.hook,
+        concept: pendingIdea.concept,
+        source_timestamp: pendingIdea.source_timestamp,
+      });
+
+      // Pre-fill custom prompt with idea context
+      const promptParts = [];
+      if (pendingIdea.source_timestamp) {
+        promptParts.push(`Find the moment around ${pendingIdea.source_timestamp}`);
+      }
+      promptParts.push(`The clip should capture: "${pendingIdea.title}"`);
+      if (pendingIdea.concept) {
+        promptParts.push(`Concept: ${pendingIdea.concept}`);
+      }
+      promptParts.push(`Opening hook: "${pendingIdea.hook}"`);
+      promptParts.push('Make it engaging for shorts format (under 60 seconds)');
+
+      setCustomPrompt(promptParts.join('\n'));
+      setShowCustomPrompt(true);
+      setNumClips(1); // Just find this one specific moment
+      setTranscriptMode('custom'); // Will need custom transcript or they can switch to YouTube
+
+      // If we have video data, upload it automatically
+      if (pendingIdea.videoData && pendingIdea.videoFilename) {
+        setProcessingIdea(true);
+
+        // Convert base64 back to File and upload
+        const byteCharacters = atob(pendingIdea.videoData);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'video/mp4' });
+        const file = new File([blob], pendingIdea.videoFilename, { type: 'video/mp4' });
+
+        // Trigger upload
+        uploadFile(file).finally(() => {
+          setProcessingIdea(false);
+        });
+      }
+
+      // Clear the pending idea so it's not processed again
+      clearPendingIdea();
+    }
+  }, []);
 
   // Shared upload function for both click and drag-drop
   const uploadFile = async (file: File) => {
@@ -570,6 +632,50 @@ export default function ShortsPage() {
             Use Sample Clip
           </button>
         </div>
+
+        {/* Idea Context Banner */}
+        {ideaContext && (
+          <div className="mb-6 p-4 bg-gradient-to-r from-orange-900/30 to-red-900/30 border border-orange-700/50 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 p-2 bg-orange-600/20 rounded-lg">
+                <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-orange-400 font-medium mb-1">Creating Short from Idea</h3>
+                <p className="text-white font-medium">{ideaContext.title}</p>
+                {ideaContext.concept && (
+                  <p className="text-sm text-zinc-400 mt-1">{ideaContext.concept}</p>
+                )}
+                {ideaContext.source_timestamp && (
+                  <p className="text-xs text-zinc-500 mt-2 font-mono">Source timestamp: @{ideaContext.source_timestamp}</p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setIdeaContext(null);
+                  setCustomPrompt('');
+                }}
+                className="text-zinc-500 hover:text-white transition-colors"
+                title="Dismiss"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {processingIdea && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-orange-300">
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Auto-uploading video from idea...
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Missing Environment Variables */}
         {missingEnv ? (

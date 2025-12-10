@@ -195,6 +195,13 @@ export default function RegionSelectorPage() {
     background_opacity: 50,
   });
 
+  // Silence removal options state
+  const [silenceRemoval, setSilenceRemoval] = useState({
+    enabled: false,
+    min_gap_duration: 0.4, // minimum gap in seconds to remove
+    padding: 0.05, // padding to keep around speech segments
+  });
+
   // For caption preview animation
   const [previewWordIndex, setPreviewWordIndex] = useState(0);
   const previewWords = ["This", "is", "how", "your", "captions", "will", "look"];
@@ -472,6 +479,7 @@ export default function RegionSelectorPage() {
               splitRatio,
             },
             caption_options: captionOptions,
+            silence_removal: silenceRemoval,
           }),
         }
       );
@@ -1092,6 +1100,54 @@ export default function RegionSelectorPage() {
 
               {!captionOptions.enabled && (
                 <p className="text-xs text-zinc-500">Enable to add animated captions.</p>
+              )}
+            </div>
+
+            {/* Silence Removal / Jump Cuts */}
+            <div className="p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-white">Remove Gaps</h3>
+                <button
+                  onClick={() => setSilenceRemoval(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${silenceRemoval.enabled ? "bg-purple-600" : "bg-zinc-600"}`}
+                >
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${silenceRemoval.enabled ? "translate-x-5" : "translate-x-1"}`} />
+                </button>
+              </div>
+
+              {silenceRemoval.enabled ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-zinc-400">
+                    Automatically removes pauses and gaps between speech using AI transcription.
+                  </p>
+
+                  {/* Min Gap Duration Slider */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-zinc-400">Minimum Gap</label>
+                      <span className="text-xs text-purple-400 font-mono">{silenceRemoval.min_gap_duration.toFixed(1)}s</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.2"
+                      max="1.5"
+                      step="0.1"
+                      value={silenceRemoval.min_gap_duration}
+                      onChange={(e) => setSilenceRemoval(prev => ({ ...prev, min_gap_duration: parseFloat(e.target.value) }))}
+                      className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-zinc-600">
+                      <span>Aggressive</span>
+                      <span>Conservative</span>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-zinc-500">
+                    Gaps longer than {silenceRemoval.min_gap_duration}s will be cut out.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-500">Enable to create jump cuts by removing silent gaps.</p>
               )}
             </div>
           </div>

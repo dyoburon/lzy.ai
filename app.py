@@ -28,7 +28,8 @@ from services.shorts import (
     process_clip_to_vertical,
     process_clips_to_vertical,
     process_clip_to_vertical_with_captions,
-    process_clips_to_vertical_with_captions
+    process_clips_to_vertical_with_captions,
+    remove_silence_from_video
 )
 from services.idea_generator import process_video_for_ideas, generate_video_ideas, chat_with_ideas
 from services.channel_improver import analyze_video_for_improvements
@@ -411,6 +412,7 @@ def process_vertical_shorts():
     """
     Process clipped videos into vertical shorts with stacked regions.
     Optionally adds animated captions if caption_options.enabled is true.
+    Optionally removes silence/gaps if silence_removal.enabled is true.
 
     Request body:
     {
@@ -431,6 +433,11 @@ def process_vertical_shorts():
             "primary_color": "white",
             "highlight_color": "yellow",
             "highlight_scale": 1.3
+        },
+        "silence_removal": {  # Optional - remove gaps/pauses
+            "enabled": false,
+            "min_gap_duration": 0.4,  # Minimum gap in seconds to remove
+            "padding": 0.05  # Padding to keep around speech segments
         }
     }
 
@@ -442,6 +449,7 @@ def process_vertical_shorts():
     regions = data.get('regions')
     layout = data.get('layout')
     caption_options = data.get('caption_options')
+    silence_removal = data.get('silence_removal')
 
     # Debug: Log caption_options received from frontend
     print(f"[process-vertical] caption_options from frontend: {caption_options}")
@@ -449,6 +457,9 @@ def process_vertical_shorts():
         print(f"[process-vertical] background_enabled: {caption_options.get('background_enabled')}")
         print(f"[process-vertical] background_color: {caption_options.get('background_color')}")
         print(f"[process-vertical] background_opacity: {caption_options.get('background_opacity')}")
+
+    if silence_removal:
+        print(f"[process-vertical] silence_removal options: {silence_removal}")
 
     if not clips:
         return jsonify({"error": "No clips provided"}), 400
@@ -459,17 +470,49 @@ def process_vertical_shorts():
     if not layout:
         layout = {"topRegionId": "content", "splitRatio": 0.6}
 
-    # Check if captions are requested
+    # Check if silence removal or captions are requested (both need OpenAI API)
+    needs_openai = (
+        (caption_options and caption_options.get('enabled', False)) or
+        (silence_removal and silence_removal.get('enabled', False))
+    )
+    if needs_openai and not os.environ.get("OPENAI_API_KEY"):
+        return jsonify({
+            "error": "OPENAI_API_KEY not configured. Captions and silence removal require OpenAI Whisper API.",
+            "missing_env": "OPENAI_API_KEY"
+        }), 400
+
+    # Process clips to vertical format (with or without captions)
     if caption_options and caption_options.get('enabled', False):
-        # Verify OpenAI API key is configured
-        if not os.environ.get("OPENAI_API_KEY"):
-            return jsonify({
-                "error": "OPENAI_API_KEY not configured. Captions require OpenAI Whisper API.",
-                "missing_env": "OPENAI_API_KEY"
-            }), 400
         result = process_clips_to_vertical_with_captions(clips, regions, layout, caption_options)
     else:
         result = process_clips_to_vertical(clips, regions, layout)
+
+    # Apply silence removal if requested (after vertical processing)
+    if silence_removal and silence_removal.get('enabled', False):
+        processed_clips = result.get('processed_clips', [])
+        min_gap = silence_removal.get('min_gap_duration', 0.4)
+        padding = silence_removal.get('padding', 0.05)
+
+        for clip_data in processed_clips:
+            processed = clip_data.get('processed', {})
+            if processed.get('success') and processed.get('video_data'):
+                print(f"[process-vertical] Applying silence removal to clip...")
+                silence_result = remove_silence_from_video(
+                    processed['video_data'],
+                    min_gap_duration=min_gap,
+                    padding=padding
+                )
+                if silence_result.get('success'):
+                    # Update the processed video with silence-removed version
+                    processed['video_data'] = silence_result['video_data']
+                    processed['file_size'] = silence_result.get('file_size', processed.get('file_size'))
+                    processed['silence_removed'] = silence_result.get('silence_removed', False)
+                    processed['gaps_removed'] = silence_result.get('gaps_removed', 0)
+                    processed['time_removed_seconds'] = silence_result.get('time_removed_seconds', 0)
+                else:
+                    # Log error but don't fail the whole request
+                    print(f"[process-vertical] Silence removal failed: {silence_result.get('error')}")
+                    processed['silence_removal_error'] = silence_result.get('error')
 
     return jsonify(result)
 

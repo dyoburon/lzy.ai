@@ -82,3 +82,38 @@ export function clearProcessedClips(): void {
 export function hasProcessedClips(): boolean {
   return processedClips !== null && processedClips.length > 0;
 }
+
+// --- Idea-to-Tool Flow ---
+// Used when navigating from idea generator to shorts/best-of pages
+
+interface IdeaContext {
+  type: 'shorts' | 'video';
+  title: string;
+  concept?: string;
+  description?: string;
+  hook: string;
+  source_timestamp?: string;
+  format?: string;
+  content_type?: string;
+  key_points?: string[];
+  videoData?: string;  // base64 video data
+  videoFilename?: string;
+}
+
+let pendingIdea: IdeaContext | null = null;
+
+export function setPendingIdea(idea: IdeaContext): void {
+  pendingIdea = idea;
+}
+
+export function getPendingIdea(): IdeaContext | null {
+  return pendingIdea;
+}
+
+export function clearPendingIdea(): void {
+  pendingIdea = null;
+}
+
+export function hasPendingIdea(): boolean {
+  return pendingIdea !== null;
+}

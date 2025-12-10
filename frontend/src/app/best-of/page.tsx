@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
+import { getPendingIdea, clearPendingIdea } from "@/lib/clipStore";
 
 interface Moment {
   start_time: string;
@@ -220,6 +221,16 @@ export default function BestOfPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
+  // Idea context (from idea generator)
+  const [ideaContext, setIdeaContext] = useState<{
+    title: string;
+    description?: string;
+    hook: string;
+    source_timestamp?: string;
+    key_points?: string[];
+  } | null>(null);
+  const [processingIdea, setProcessingIdea] = useState(false);
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
 
   const estimatedDuration = numClips * avgClipLength;
@@ -257,6 +268,104 @@ export default function BestOfPage() {
     checkConfig();
 
   }, [API_URL]);
+
+  // Helper function to upload a file
+  const uploadVideoFile = async (file: File): Promise<string | null> => {
+    setUploading(true);
+    setUploadProgress(0);
+    setError("");
+
+    return new Promise((resolve) => {
+      const formData = new FormData();
+      formData.append("video", file);
+
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(progress);
+        }
+      };
+
+      xhr.onload = () => {
+        setUploading(false);
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText);
+          setUploadedVideoPath(data.video_path);
+          setVideoFile(file);
+          resolve(data.video_path);
+        } else {
+          const data = JSON.parse(xhr.responseText);
+          setError(data.error || "Upload failed");
+          resolve(null);
+        }
+      };
+
+      xhr.onerror = () => {
+        setError("Upload failed. Make sure the backend is running.");
+        setUploading(false);
+        resolve(null);
+      };
+
+      xhr.open("POST", `${API_URL}/api/bestof/upload`);
+      xhr.send(formData);
+    });
+  };
+
+  // Check for pending idea from idea generator
+  useEffect(() => {
+    const pendingIdea = getPendingIdea();
+    if (pendingIdea && pendingIdea.type === 'video') {
+      setIdeaContext({
+        title: pendingIdea.title,
+        description: pendingIdea.description,
+        hook: pendingIdea.hook,
+        source_timestamp: pendingIdea.source_timestamp,
+        key_points: pendingIdea.key_points,
+      });
+
+      // Pre-fill custom prompt with idea context
+      const promptParts = [];
+      promptParts.push(`Create a compilation featuring: "${pendingIdea.title}"`);
+      if (pendingIdea.description) {
+        promptParts.push(`Description: ${pendingIdea.description}`);
+      }
+      if (pendingIdea.source_timestamp) {
+        promptParts.push(`Focus on the section around ${pendingIdea.source_timestamp}`);
+      }
+      if (pendingIdea.key_points && pendingIdea.key_points.length > 0) {
+        promptParts.push(`Key points to include:\n${pendingIdea.key_points.map(p => `- ${p}`).join('\n')}`);
+      }
+
+      setCustomPrompt(promptParts.join('\n'));
+      setShowCustomPrompt(true);
+      setTranscriptMode('custom'); // Will need custom transcript or they can switch to YouTube
+
+      // If we have video data, upload it automatically
+      if (pendingIdea.videoData && pendingIdea.videoFilename) {
+        setProcessingIdea(true);
+
+        // Convert base64 back to File and upload
+        const byteCharacters = atob(pendingIdea.videoData);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'video/mp4' });
+        const file = new File([blob], pendingIdea.videoFilename, { type: 'video/mp4' });
+
+        // Trigger upload
+        uploadVideoFile(file).finally(() => {
+          setProcessingIdea(false);
+        });
+      }
+
+      // Clear the pending idea so it's not processed again
+      clearPendingIdea();
+    }
+  }, []);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -692,6 +801,60 @@ export default function BestOfPage() {
             </div>
           ))}
         </div>
+
+        {/* Idea Context Banner */}
+        {ideaContext && (
+          <div className="mb-6 p-4 bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-700/50 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 p-2 bg-purple-600/20 rounded-lg">
+                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-purple-400 font-medium mb-1">Creating Compilation from Idea</h3>
+                <p className="text-white font-medium">{ideaContext.title}</p>
+                {ideaContext.description && (
+                  <p className="text-sm text-zinc-400 mt-1">{ideaContext.description}</p>
+                )}
+                {ideaContext.source_timestamp && (
+                  <p className="text-xs text-zinc-500 mt-2 font-mono">Source timestamp: @{ideaContext.source_timestamp}</p>
+                )}
+                {ideaContext.key_points && ideaContext.key_points.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs text-zinc-500">Key points:</p>
+                    <ul className="text-xs text-zinc-400 mt-1 space-y-0.5">
+                      {ideaContext.key_points.slice(0, 3).map((point, i) => (
+                        <li key={i}>• {point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setIdeaContext(null);
+                  setCustomPrompt('');
+                }}
+                className="text-zinc-500 hover:text-white transition-colors"
+                title="Dismiss"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {processingIdea && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-purple-300">
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Auto-uploading video from idea...
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Missing Environment Variables */}
         {missingEnv ? (

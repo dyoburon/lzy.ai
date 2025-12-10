@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { setPendingIdea } from "@/lib/clipStore";
 
 interface VideoIdea {
   title: string;
@@ -215,7 +217,168 @@ interface ChannelContext {
   recent_videos: { title: string; video_id: string }[];
 }
 
+interface UseIdeaModalProps {
+  idea: VideoIdea | ShortsIdea | null;
+  ideaType: 'video' | 'shorts';
+  onClose: () => void;
+  onComplete: (videoData: string, filename: string) => void;
+}
+
+function UseIdeaModal({ idea, ideaType, onClose, onComplete }: UseIdeaModalProps) {
+  const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  if (!idea) return null;
+
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith('video/')) {
+      alert('Please upload a video file');
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        onComplete(base64, file.name);
+      };
+      reader.onerror = () => {
+        alert('Failed to read file');
+        setUploading(false);
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      alert('Failed to process video');
+      setUploading(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(true);
+  };
+
+  const handleDragLeave = () => {
+    setDragActive(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const isVideoIdea = (i: VideoIdea | ShortsIdea): i is VideoIdea => {
+    return 'description' in i && 'key_points' in i;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-zinc-700">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Use This Idea</h2>
+            <p className="text-sm text-zinc-400">
+              {ideaType === 'shorts' ? 'Create a Short' : 'Create a Best-Of Compilation'}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Idea Preview */}
+        <div className="p-4 bg-zinc-800/50 border-b border-zinc-700">
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`px-2 py-0.5 text-xs rounded ${
+              ideaType === 'shorts' ? 'bg-orange-900/30 text-orange-400' : 'bg-purple-900/30 text-purple-400'
+            }`}>
+              {ideaType === 'shorts' ? 'Short' : 'Video'}
+            </span>
+            {idea.source_timestamp && (
+              <span className="text-xs text-zinc-500 font-mono">@{idea.source_timestamp}</span>
+            )}
+          </div>
+          <h3 className="text-white font-medium mb-1">{idea.title}</h3>
+          <p className="text-sm text-zinc-400">
+            {isVideoIdea(idea) ? idea.description : (idea as ShortsIdea).concept}
+          </p>
+          <p className="text-sm text-purple-300 italic mt-2">&ldquo;{idea.hook}&rdquo;</p>
+        </div>
+
+        {/* Upload Section */}
+        <div className="p-4">
+          <p className="text-sm text-zinc-300 mb-4">
+            Upload the source video containing this moment:
+          </p>
+
+          <div
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+              dragActive
+                ? 'border-purple-500 bg-purple-500/10'
+                : 'border-zinc-600 hover:border-zinc-500'
+            }`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+          >
+            {uploading ? (
+              <div className="flex flex-col items-center gap-3">
+                <svg className="w-8 h-8 text-purple-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p className="text-zinc-300">Processing video...</p>
+              </div>
+            ) : (
+              <>
+                <svg className="w-10 h-10 text-zinc-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <p className="text-zinc-300 mb-2">Drag and drop your video here</p>
+                <p className="text-zinc-500 text-sm mb-4">or</p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                >
+                  Browse Files
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={handleInputChange}
+                  className="hidden"
+                />
+              </>
+            )}
+          </div>
+
+          {idea.source_timestamp && (
+            <p className="text-xs text-zinc-500 mt-3 text-center">
+              The moment is around <span className="text-purple-400 font-mono">{idea.source_timestamp}</span> in the video
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function IdeaGeneratorPage() {
+  const router = useRouter();
   const [urls, setUrls] = useState<string[]>([""]);
   const [numVideoIdeas, setNumVideoIdeas] = useState(10);
   const [numShortsIdeas, setNumShortsIdeas] = useState(10);
@@ -231,8 +394,43 @@ export default function IdeaGeneratorPage() {
   const [activeTab, setActiveTab] = useState<"videos" | "shorts">("videos");
   const [showChat, setShowChat] = useState(false);
   const [regenerating, setRegenerating] = useState<string | null>(null);
+  const [selectedIdea, setSelectedIdea] = useState<VideoIdea | ShortsIdea | null>(null);
+  const [selectedIdeaType, setSelectedIdeaType] = useState<'video' | 'shorts'>('shorts');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5005";
+
+  const handleUseIdea = (idea: VideoIdea | ShortsIdea, type: 'video' | 'shorts') => {
+    setSelectedIdea(idea);
+    setSelectedIdeaType(type);
+  };
+
+  const handleIdeaUploadComplete = (videoData: string, filename: string) => {
+    if (!selectedIdea) return;
+
+    const isVideoIdea = 'description' in selectedIdea && 'key_points' in selectedIdea;
+
+    // Store the idea data with video info
+    setPendingIdea({
+      type: selectedIdeaType,
+      title: selectedIdea.title,
+      hook: selectedIdea.hook,
+      source_timestamp: selectedIdea.source_timestamp,
+      concept: !isVideoIdea ? (selectedIdea as ShortsIdea).concept : undefined,
+      description: isVideoIdea ? (selectedIdea as VideoIdea).description : undefined,
+      format: !isVideoIdea ? (selectedIdea as ShortsIdea).format : undefined,
+      content_type: isVideoIdea ? (selectedIdea as VideoIdea).content_type : undefined,
+      key_points: isVideoIdea ? (selectedIdea as VideoIdea).key_points : undefined,
+      videoData,
+      videoFilename: filename,
+    });
+
+    // Navigate to appropriate page
+    if (selectedIdeaType === 'shorts') {
+      router.push('/shorts');
+    } else {
+      router.push('/best-of');
+    }
+  };
 
   useEffect(() => {
     const checkConfig = async () => {
@@ -916,6 +1114,20 @@ export default function IdeaGeneratorPage() {
                                       <h4 className="text-sm font-medium text-zinc-500 mb-1">Source Context</h4>
                                       <p className="text-zinc-500 text-sm italic">{idea.source_context}</p>
                                     </div>
+
+                                    {/* Use This Idea Button */}
+                                    <div className="pt-4 border-t border-zinc-700 mt-4">
+                                      <button
+                                        onClick={() => handleUseIdea(idea, 'video')}
+                                        className="w-full px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        Use This Idea (Best-Of Compiler)
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               ))
@@ -948,6 +1160,18 @@ export default function IdeaGeneratorPage() {
                                     <h4 className="text-xs font-medium text-zinc-500 mb-1">Opening Hook</h4>
                                     <p className="text-purple-300 text-sm italic">&ldquo;{idea.hook}&rdquo;</p>
                                   </div>
+
+                                  {/* Use This Idea Button */}
+                                  <button
+                                    onClick={() => handleUseIdea(idea, 'shorts')}
+                                    className="mt-4 w-full px-3 py-2 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Create Short
+                                  </button>
                                 </div>
                               ))
                             )}
@@ -981,6 +1205,16 @@ export default function IdeaGeneratorPage() {
           </>
         )}
       </main>
+
+      {/* Use Idea Modal */}
+      {selectedIdea && (
+        <UseIdeaModal
+          idea={selectedIdea}
+          ideaType={selectedIdeaType}
+          onClose={() => setSelectedIdea(null)}
+          onComplete={handleIdeaUploadComplete}
+        />
+      )}
     </div>
   );
 }

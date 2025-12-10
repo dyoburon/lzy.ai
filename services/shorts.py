@@ -794,3 +794,189 @@ def process_clips_to_vertical_with_captions(clips, regions, layout_config, capti
         })
 
     return {"processed_clips": results}
+
+
+def remove_silence_from_video(video_data_base64, min_gap_duration=0.4, padding=0.05):
+    """
+    Remove silent gaps from a video using Whisper word-level timestamps.
+
+    This function:
+    1. Transcribes the video with Whisper to get word timestamps
+    2. Identifies gaps between words longer than min_gap_duration
+    3. Cuts out those gaps and concatenates the speaking segments
+
+    Args:
+        video_data_base64: Base64 encoded video data
+        min_gap_duration: Minimum gap duration (in seconds) to remove (default 0.4s)
+        padding: Padding to keep around each segment (default 0.05s)
+
+    Returns:
+        Dict with success status and processed video as base64
+    """
+    from services.captions import extract_audio_from_video, transcribe_with_whisper
+
+    try:
+        # Step 1: Extract audio and transcribe with Whisper
+        print(f"[remove_silence] Starting silence removal with min_gap={min_gap_duration}s, padding={padding}s")
+
+        audio_result = extract_audio_from_video(video_data_base64)
+        if "error" in audio_result:
+            return audio_result
+
+        audio_path = audio_result['audio_path']
+
+        try:
+            transcription = transcribe_with_whisper(audio_path)
+            if "error" in transcription:
+                return transcription
+        finally:
+            # Clean up audio file
+            if os.path.exists(audio_path):
+                os.unlink(audio_path)
+
+        words = transcription.get('words', [])
+
+        if not words:
+            print("[remove_silence] No words detected in transcription, returning original video")
+            return {
+                "success": True,
+                "video_data": video_data_base64,
+                "silence_removed": False,
+                "message": "No speech detected in video"
+            }
+
+        # Step 2: Find segments to keep (speech) and gaps to remove
+        segments = []
+        gaps_removed = []
+
+        for i, word in enumerate(words):
+            word_start = max(0, word['start'] - padding)
+            word_end = word['end'] + padding
+
+            if i == 0:
+                # First word - start segment
+                segments.append({'start': word_start, 'end': word_end})
+            else:
+                prev_word = words[i - 1]
+                gap = word['start'] - prev_word['end']
+
+                if gap > min_gap_duration:
+                    # Gap is too long - end previous segment, start new one
+                    gaps_removed.append({
+                        'start': prev_word['end'],
+                        'end': word['start'],
+                        'duration': gap
+                    })
+                    segments.append({'start': word_start, 'end': word_end})
+                else:
+                    # Gap is acceptable - extend current segment
+                    segments[-1]['end'] = word_end
+
+        print(f"[remove_silence] Found {len(words)} words, {len(segments)} segments, {len(gaps_removed)} gaps to remove")
+
+        if len(gaps_removed) == 0:
+            print("[remove_silence] No significant gaps found, returning original video")
+            return {
+                "success": True,
+                "video_data": video_data_base64,
+                "silence_removed": False,
+                "message": "No significant gaps found to remove"
+            }
+
+        total_gap_time = sum(g['duration'] for g in gaps_removed)
+        print(f"[remove_silence] Total gap time to remove: {total_gap_time:.2f}s")
+
+        # Step 3: Decode video to temp file
+        video_data = base64.b64decode(video_data_base64)
+        input_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        input_file.write(video_data)
+        input_file.close()
+        input_path = input_file.name
+
+        # Step 4: Extract each segment and concatenate
+        segment_files = []
+        concat_list_file = tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='w')
+
+        try:
+            for i, segment in enumerate(segments):
+                segment_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+                segment_file.close()
+                segment_path = segment_file.name
+                segment_files.append(segment_path)
+
+                duration = segment['end'] - segment['start']
+
+                # Extract segment with re-encoding for precise cuts
+                cmd = [
+                    'ffmpeg', '-y',
+                    '-ss', str(segment['start']),
+                    '-i', input_path,
+                    '-t', str(duration),
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '23',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-avoid_negative_ts', 'make_zero',
+                    segment_path
+                ]
+
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise Exception(f"Failed to extract segment {i}: {result.stderr}")
+
+                # Add to concat list
+                concat_list_file.write(f"file '{segment_path}'\n")
+
+            concat_list_file.close()
+
+            # Step 5: Concatenate all segments
+            output_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+            output_file.close()
+            output_path = output_file.name
+
+            concat_cmd = [
+                'ffmpeg', '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_list_file.name,
+                '-c', 'copy',
+                '-movflags', '+faststart',
+                output_path
+            ]
+
+            result = subprocess.run(concat_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"Failed to concatenate segments: {result.stderr}")
+
+            # Read output and convert to base64
+            with open(output_path, 'rb') as f:
+                output_data = f.read()
+
+            output_base64 = base64.b64encode(output_data).decode('utf-8')
+            file_size = len(output_data)
+
+            print(f"[remove_silence] Successfully removed {len(gaps_removed)} gaps ({total_gap_time:.2f}s total)")
+
+            return {
+                "success": True,
+                "video_data": output_base64,
+                "file_size": file_size,
+                "silence_removed": True,
+                "gaps_removed": len(gaps_removed),
+                "time_removed_seconds": round(total_gap_time, 2),
+                "segments_kept": len(segments)
+            }
+
+        finally:
+            # Clean up temp files
+            os.unlink(input_path)
+            os.unlink(concat_list_file.name)
+            for seg_path in segment_files:
+                if os.path.exists(seg_path):
+                    os.unlink(seg_path)
+            if 'output_path' in dir() and os.path.exists(output_path):
+                os.unlink(output_path)
+
+    except Exception as e:
+        return {"error": f"Error removing silence: {str(e)}"}
