@@ -70,13 +70,13 @@ export default function ResultsPage() {
     silence_threshold: 0.5,
     word_spacing: 8,
     font_size: 56,
-    font_name: "Arial Black",
+    font_name: "Montserrat Black",
     primary_color: "#ffffff",
-    highlight_color: "#fbbf24",
+    highlight_color: "#22C55E",
     highlight_scale: 1.3,
-    position_y: 85,
+    position_y: 50,
     text_style: "normal",
-    animation_style: "both",
+    animation_style: "color",
     outline_enabled: true,
     outline_color: "#000000",
     outline_width: 3,
@@ -204,6 +204,8 @@ export default function ResultsPage() {
   }
 
   const fontMap: Record<string, string> = {
+    "Montserrat Black": "var(--font-montserrat), Montserrat, Arial, sans-serif",
+    "Montserrat Bold": "var(--font-montserrat), Montserrat, Arial, sans-serif",
     Arial: "Arial, sans-serif",
     "Arial Black": "'Arial Black', sans-serif",
     Helvetica: "Helvetica, Arial, sans-serif",
@@ -369,7 +371,7 @@ export default function ResultsPage() {
                         onChange={(e) => setCaptionOptions((p) => ({ ...p, font_name: e.target.value }))}
                         className="w-full px-2 py-1 bg-zinc-700 rounded text-white text-xs"
                       >
-                        {["Arial Black", "Arial", "Helvetica", "Impact", "Verdana"].map((f) => (
+                        {["Montserrat Black", "Montserrat Bold", "Arial Black", "Arial", "Helvetica", "Impact", "Verdana"].map((f) => (
                           <option key={f} value={f}>{f}</option>
                         ))}
                       </select>
@@ -428,7 +430,7 @@ export default function ResultsPage() {
                           onChange={(e) => setCaptionOptions((p) => ({ ...p, highlight_color: e.target.value }))}
                           className="w-6 h-6 rounded cursor-pointer border border-zinc-600"
                         />
-                        {["#FBBF24", "#22C55E", "#EC4899"].map((c) => (
+                        {["#22C55E", "#FBBF24", "#EC4899"].map((c) => (
                           <button
                             key={c}
                             onClick={() => setCaptionOptions((p) => ({ ...p, highlight_color: c }))}

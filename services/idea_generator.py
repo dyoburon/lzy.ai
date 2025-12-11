@@ -70,7 +70,14 @@ def generate_video_ideas(transcript_text, num_video_ideas=5, num_shorts_ideas=5,
         default_instructions = """Generate ideas that would genuinely interest the same audience.
 Focus on topics they clearly care about based on what was discussed.
 Make video titles compelling but not clickbait.
-For shorts, find moments with natural hooks - drama, humor, insights, or surprises."""
+For shorts, find moments with natural hooks - drama, humor, insights, or surprises.
+
+SEO OPTIMIZATION:
+YouTube indexes video titles for search. Naturally incorporate searchable keywords in titles:
+- Product names, tools, or software mentioned (e.g., "ChatGPT", "Notion", "React")
+- Topic keywords people search for (e.g., "productivity tips", "coding tutorial", "beginner guide")
+- Specific techniques or concepts discussed (e.g., "prompt engineering", "state management")
+Keep it natural - the keywords should fit the content organically, not feel forced or spammy."""
 
         instructions = custom_instructions.strip() if custom_instructions else default_instructions
 

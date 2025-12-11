@@ -114,6 +114,13 @@ How to interpret their request:
 
 IMPORTANT: Only return clips that match their request. Do not include unrelated "viral" moments.
 
+SEO FOR TITLES:
+YouTube indexes transcript/caption text for search. Write titles that naturally include searchable terms:
+- Product names, tools, or software mentioned (e.g., "ChatGPT", "Notion", "React")
+- Topic keywords people search for (e.g., "productivity tips", "coding tutorial")
+- Specific techniques or concepts discussed
+Keep it natural - keywords should fit organically, not feel forced.
+
 OUTPUT FORMAT (JSON array):
 [
   {{
@@ -150,6 +157,13 @@ RULES:
 3. Avoid intros, outros, and "filler" content
 4. Focus on the most ENGAGING parts, not just informative ones
 5. Trim the fat - start right when the interesting part begins, end right after it concludes
+
+SEO FOR TITLES:
+YouTube indexes transcript/caption text for search. Write titles that naturally include searchable terms:
+- Product names, tools, or software mentioned (e.g., "ChatGPT", "Notion", "React")
+- Topic keywords people search for (e.g., "productivity tips", "coding tutorial")
+- Specific techniques or concepts discussed
+Keep it natural - keywords should fit organically, not feel forced.
 
 OUTPUT FORMAT (JSON array):
 [

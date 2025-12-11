@@ -78,11 +78,17 @@ def generate_chapters(transcript_text, custom_instructions=None):
         model = genai.GenerativeModel('gemini-2.5-pro')
 
         # Default instructions if none provided
-        default_instructions = """Your goal is to make viewers want to click through and watch each section.
-Write titles that tease the interesting stuff - the drama, the funny moments, the insights, the turning points.
-Be specific enough that people know what they're getting, but intriguing enough that they want to see it.
-Avoid generic filler like "Introduction" or "Conclusion" - find the hook in every section.
-Don't be cliche or clickbaity, but do sell it."""
+        default_instructions = """Write clear, descriptive chapter titles that accurately represent what's discussed in each section.
+Be specific about the actual content - what topics, questions, or activities happen in that segment.
+Avoid generic filler like "Introduction" or "Conclusion" - describe what actually happens.
+Keep titles natural and straightforward, not clickbaity or over-hyped.
+
+SEO OPTIMIZATION:
+YouTube uses chapter titles for search indexing. Where relevant, include searchable terms naturally:
+- Product names, tools, or software mentioned (e.g., "ChatGPT", "Notion", "React")
+- Topic keywords (e.g., "productivity tips", "coding tutorial")
+- Specific techniques or concepts discussed
+Keep it natural - keywords should fit organically, not feel forced."""
 
         instructions = custom_instructions.strip() if custom_instructions else default_instructions
 
@@ -90,9 +96,13 @@ Don't be cliche or clickbaity, but do sell it."""
 
 Format each chapter exactly like:
 MM:SS - Chapter Title
+(Use HH:MM:SS format for videos over 1 hour)
 
 Rules:
-- Maximum 15 chapters (combine smaller sections if needed)
+- STRICT LIMIT: Output EXACTLY 15-20 chapters, no more. Combine related sections to stay within this limit.
+- Cover the ENTIRE video from start to finish - don't stop partway through
+- For an 8-hour stream, each chapter should cover roughly 20-30 minutes of content
+- Group similar activities together (e.g., "Debugging Multiple Chart Issues" instead of one chapter per bug)
 - Use timestamps from the transcript
 - Output only the chapter list, no other text
 
@@ -111,7 +121,7 @@ Transcript:
 
 def chat_with_transcript(message, context, history=None):
     """
-    Chat with Gemini about transcript content using Gemini 2.5 Flash.
+    Chat assistant for answering questions about a video transcript.
 
     Args:
         message: The user's question/message
@@ -135,9 +145,9 @@ def chat_with_transcript(message, context, history=None):
                 role = "User" if msg.get("role") == "user" else "Assistant"
                 conversation_context += f"{role}: {msg.get('content', '')}\n"
 
-        prompt = f"""You are a helpful assistant analyzing video transcripts. Answer questions about the transcript content accurately and concisely.
+        prompt = f"""You are a helpful assistant for answering questions about this video. The user may ask about what was discussed, timestamps for specific topics, summaries, or anything else related to the content.
 
-=== TRANSCRIPT CONTENT ===
+=== VIDEO TRANSCRIPT ===
 {context}
 === END TRANSCRIPT ===
 
@@ -145,7 +155,7 @@ def chat_with_transcript(message, context, history=None):
 
 User's question: {message}
 
-Provide a helpful, accurate response based on the transcript content. If the answer isn't in the transcript, say so. Be concise but thorough."""
+Answer based on the transcript. Be helpful and concise. If something isn't covered in the video, let them know."""
 
         response = model.generate_content(prompt)
         return {"response": response.text}
