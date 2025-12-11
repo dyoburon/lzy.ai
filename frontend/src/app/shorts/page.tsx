@@ -91,6 +91,10 @@ export default function ShortsPage() {
   const [selectedMoments, setSelectedMoments] = useState<Set<number>>(new Set());
   const [clipping, setClipping] = useState(false);
 
+  // Wake word feature
+  const [wakeWord, setWakeWord] = useState("");
+  const [onlyWakeWordClips, setOnlyWakeWordClips] = useState(false);
+
   // Drag and drop state
   const [isDragging, setIsDragging] = useState(false);
 
@@ -341,8 +345,22 @@ export default function ShortsPage() {
       // In curator mode, find 12 moments for user selection
       const effectiveNumClips = curatorMode ? 12 : numClips;
       const detectBody = transcriptMode === "youtube"
-        ? { url, num_clips: effectiveNumClips, custom_prompt: customPrompt || undefined, curator_mode: curatorMode }
-        : { custom_transcript: customTranscript, num_clips: effectiveNumClips, custom_prompt: customPrompt || undefined, curator_mode: curatorMode };
+        ? {
+            url,
+            num_clips: effectiveNumClips,
+            custom_prompt: customPrompt || undefined,
+            curator_mode: curatorMode,
+            wake_word: wakeWord || undefined,
+            only_wake_word_clips: onlyWakeWordClips
+          }
+        : {
+            custom_transcript: customTranscript,
+            num_clips: effectiveNumClips,
+            custom_prompt: customPrompt || undefined,
+            curator_mode: curatorMode,
+            wake_word: wakeWord || undefined,
+            only_wake_word_clips: onlyWakeWordClips
+          };
 
       const detectResponse = await fetch(`${API_URL}/api/shorts/detect-moments`, {
         method: "POST",
@@ -865,6 +883,50 @@ export default function ShortsPage() {
                   />
                 </div>
               )}
+
+              {/* Wake Word Feature */}
+              <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Wake Word <span className="text-zinc-500 font-normal">(Optional)</span>
+                </label>
+                <p className="text-sm text-zinc-500 mb-3">
+                  Find clips where you said a specific word or phrase during the stream
+                </p>
+                <input
+                  type="text"
+                  value={wakeWord}
+                  onChange={(e) => setWakeWord(e.target.value)}
+                  placeholder="e.g., 'clip that', 'highlight', 'save this'"
+                  className="w-full px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors"
+                />
+
+                {/* Only wake word clips toggle - only show when wake word is entered */}
+                {wakeWord.trim() && (
+                  <div className="mt-4 flex items-center justify-between p-3 bg-zinc-900/50 rounded-lg border border-zinc-700/50">
+                    <div>
+                      <label className="block text-sm font-medium text-white">
+                        Only find clips with this word
+                      </label>
+                      <p className="text-xs text-zinc-500 mt-0.5">
+                        Ignore all other moments, only return clips containing &quot;{wakeWord}&quot;
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOnlyWakeWordClips(!onlyWakeWordClips)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        onlyWakeWordClips ? 'bg-purple-600' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          onlyWakeWordClips ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Custom Instructions (Optional) */}
               <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">

@@ -300,6 +300,108 @@ def upload_video():
     })
 
 
+def find_wake_word_timestamps(transcript_text, wake_word):
+    """
+    Find all occurrences of a wake word in a timestamped transcript and return their timestamps.
+
+    Args:
+        transcript_text: Transcript with timestamps in format "[MM:SS] text" or "[H:MM:SS] text"
+        wake_word: Word/phrase to search for
+
+    Returns:
+        List of timestamps where the wake word appears, e.g., ["5:23", "12:45"]
+    """
+    if not wake_word or not wake_word.strip():
+        return []
+
+    wake_word_lower = wake_word.lower().strip()
+    timestamps = []
+
+    # Parse transcript line by line to find timestamps
+    import re
+    # Match timestamps like [0:00], [5:23], [1:23:45]
+    timestamp_pattern = r'\[(\d+:?\d*:\d+)\]'
+
+    lines = transcript_text.split('\n')
+    current_timestamp = None
+
+    for line in lines:
+        # Extract timestamp from line
+        match = re.search(timestamp_pattern, line)
+        if match:
+            current_timestamp = match.group(1)
+
+        # Check if wake word is in this line
+        if current_timestamp and wake_word_lower in line.lower():
+            if current_timestamp not in timestamps:
+                timestamps.append(current_timestamp)
+                print(f"[wake_word] Found '{wake_word}' at timestamp {current_timestamp}")
+
+    print(f"[wake_word] Total: Found '{wake_word}' at {len(timestamps)} unique timestamps")
+    return timestamps
+
+
+def generate_wake_word_moments(transcript_text, wake_word, num_clips, timestamps_found):
+    """
+    Use AI to generate clip moments around wake word occurrences.
+
+    If there are multiple occurrences, create clips around each.
+    If there's only one occurrence but multiple clips requested, create variations.
+
+    Args:
+        transcript_text: Full transcript with timestamps
+        wake_word: The wake word/phrase
+        num_clips: Number of clips requested
+        timestamps_found: List of timestamps where wake word appears
+
+    Returns:
+        Dict with 'moments' list
+    """
+    from services.shorts import detect_interesting_moments
+
+    if not timestamps_found:
+        return {"moments": [], "error": f"Wake word '{wake_word}' not found in transcript"}
+
+    num_occurrences = len(timestamps_found)
+
+    # Build a custom prompt that tells AI exactly where to focus
+    timestamp_list = ", ".join(timestamps_found)
+
+    if num_occurrences == 1:
+        # Only 1 occurrence - create variations around it
+        custom_prompt = f"""
+The user wants {num_clips} clips around the phrase "{wake_word}" which appears at timestamp {timestamps_found[0]}.
+
+Create {num_clips} different clip variations around this moment, each with different start/end times:
+- Mix of short clips (~20-30s), medium clips (~45-60s), and longer clips (~60-90s)
+- All clips must include the "{wake_word}" moment
+
+Create exactly {num_clips} clips.
+"""
+    else:
+        # Multiple occurrences - spread clips across them
+        custom_prompt = f"""
+The user wants {num_clips} clips around the phrase "{wake_word}" which appears at these timestamps: {timestamp_list}
+
+Create {num_clips} clips spread across these occurrences. Don't put all clips on the same timestamp - distribute them.
+Each clip should be 30-90 seconds and include one of the "{wake_word}" moments.
+
+Create exactly {num_clips} clips.
+"""
+
+    print(f"[wake_word] Generating {num_clips} clips around {num_occurrences} occurrences of '{wake_word}'")
+
+    # Use the existing moment detection with our custom prompt
+    result = detect_interesting_moments(
+        transcript_text,
+        num_clips=num_clips,
+        custom_prompt=custom_prompt,
+        curator_mode=False
+    )
+
+    return result
+
+
 @app.route('/api/shorts/detect-moments', methods=['POST'])
 def detect_moments():
     """
@@ -310,7 +412,9 @@ def detect_moments():
         "url": "https://youtube.com/watch?v=...",
         "num_clips": 3,  // Optional, 1-10 (or 1-15 in curator mode), default 3
         "custom_prompt": "Focus on funny moments...",  // Optional custom instructions
-        "curator_mode": false  // Optional, if true allows up to 15 clips for user selection
+        "curator_mode": false,  // Optional, if true allows up to 15 clips for user selection
+        "wake_word": "clip that",  // Optional, find moments containing this word/phrase
+        "only_wake_word_clips": false  // Optional, if true only return moments with wake word
     }
 
     Request body (Custom transcript mode):
@@ -318,7 +422,9 @@ def detect_moments():
         "custom_transcript": "...",  // Plain text transcript
         "num_clips": 3,
         "custom_prompt": "...",
-        "curator_mode": false
+        "curator_mode": false,
+        "wake_word": "...",
+        "only_wake_word_clips": false
     }
 
     Returns detected moments with timestamps and viral scores.
@@ -335,6 +441,8 @@ def detect_moments():
     num_clips = data.get('num_clips', 3)
     custom_prompt = data.get('custom_prompt')
     curator_mode = data.get('curator_mode', False)
+    wake_word = data.get('wake_word', '')
+    only_wake_word_clips = data.get('only_wake_word_clips', False)
 
     # Validate num_clips (15 max in curator mode, 10 otherwise)
     max_clips = 15 if curator_mode else 10
@@ -346,7 +454,53 @@ def detect_moments():
 
     # Custom transcript mode
     if custom_transcript:
-        # Use the transcript directly for moment detection
+        # If wake word is specified with only_wake_word_clips, use wake word targeting
+        if wake_word and only_wake_word_clips:
+            # Find all timestamps where the wake word appears
+            timestamps_found = find_wake_word_timestamps(custom_transcript, wake_word)
+
+            if not timestamps_found:
+                return jsonify({
+                    "video_id": None,
+                    "moments": [],
+                    "transcript_preview": custom_transcript[:500] + "..." if len(custom_transcript) > 500 else custom_transcript,
+                    "full_transcript": custom_transcript,
+                    "source": "custom",
+                    "wake_word_filter": {
+                        "wake_word": wake_word,
+                        "only_wake_word_clips": True,
+                        "timestamps_found": [],
+                        "error": f"Wake word '{wake_word}' not found in transcript"
+                    }
+                })
+
+            # Generate moments specifically around the wake word occurrences
+            moments_result = generate_wake_word_moments(
+                custom_transcript,
+                wake_word,
+                num_clips,
+                timestamps_found
+            )
+
+            if "error" in moments_result and not moments_result.get("moments"):
+                return jsonify(moments_result), 400
+
+            return jsonify({
+                "video_id": None,
+                "moments": moments_result.get('moments', []),
+                "transcript_preview": custom_transcript[:500] + "..." if len(custom_transcript) > 500 else custom_transcript,
+                "full_transcript": custom_transcript,
+                "source": "custom",
+                "wake_word_filter": {
+                    "wake_word": wake_word,
+                    "only_wake_word_clips": True,
+                    "timestamps_found": timestamps_found,
+                    "occurrences": len(timestamps_found),
+                    "clips_requested": num_clips
+                }
+            })
+
+        # Standard mode - use AI to find interesting moments
         moments_result = detect_interesting_moments(
             custom_transcript,
             num_clips=num_clips,
@@ -369,9 +523,40 @@ def detect_moments():
     if not video_url:
         return jsonify({"error": "No URL or custom transcript provided"}), 400
 
+    # First get the transcript so we can search for wake word
     result = process_video_for_shorts(video_url, num_clips=num_clips, custom_prompt=custom_prompt, curator_mode=curator_mode)
     if "error" in result:
         return jsonify(result), 400
+
+    # If wake word is specified with only_wake_word_clips, regenerate moments around wake word
+    if wake_word and only_wake_word_clips:
+        transcript = result.get('full_transcript', result.get('transcript_preview', ''))
+        timestamps_found = find_wake_word_timestamps(transcript, wake_word)
+
+        if not timestamps_found:
+            result['moments'] = []
+            result['wake_word_filter'] = {
+                "wake_word": wake_word,
+                "only_wake_word_clips": True,
+                "timestamps_found": [],
+                "error": f"Wake word '{wake_word}' not found in transcript"
+            }
+        else:
+            # Generate moments specifically around the wake word occurrences
+            moments_result = generate_wake_word_moments(
+                transcript,
+                wake_word,
+                num_clips,
+                timestamps_found
+            )
+            result['moments'] = moments_result.get('moments', [])
+            result['wake_word_filter'] = {
+                "wake_word": wake_word,
+                "only_wake_word_clips": True,
+                "timestamps_found": timestamps_found,
+                "occurrences": len(timestamps_found),
+                "clips_requested": num_clips
+            }
 
     result['source'] = 'youtube'
     return jsonify(result)
