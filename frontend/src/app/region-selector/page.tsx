@@ -5,6 +5,17 @@ import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { getPendingClips, setProcessedClips as storeProcessedClips } from "@/lib/clipStore";
 
+// LocalStorage keys for settings persistence
+const STORAGE_KEYS = {
+  captionOptions: "lzy_caption_options",
+  silenceRemoval: "lzy_silence_removal",
+  layoutMode: "lzy_layout_mode",
+  splitRatio: "lzy_split_ratio",
+  topRegionId: "lzy_top_region_id",
+  pipSettings: "lzy_pip_settings",
+  regions: "lzy_regions", // Saved region positions (used as default for new clips)
+};
+
 interface Region {
   id: string;
   label: string;
@@ -71,6 +82,46 @@ interface CaptionOptions {
   background_opacity: number;
 }
 
+// Default values for settings (used for initialization and reset)
+const DEFAULT_CAPTION_OPTIONS: CaptionOptions = {
+  enabled: true,
+  words_per_group: 3,
+  silence_threshold: 0.5,
+  word_spacing: 8,
+  font_size: 56,
+  font_name: "Montserrat Black",
+  primary_color: "#ffffff",
+  highlight_color: "#22C55E",
+  highlight_scale: 1.3,
+  position: "middle",
+  position_y: 50,
+  text_style: "uppercase",
+  animation_style: "color",
+  outline_enabled: true,
+  outline_color: "#000000",
+  outline_width: 5,
+  shadow_enabled: true,
+  shadow_color: "#000000",
+  background_enabled: false,
+  background_color: "#000000",
+  background_opacity: 50,
+};
+
+const DEFAULT_SILENCE_REMOVAL = {
+  enabled: false,
+  min_gap_duration: 0.4,
+  padding: 0.05,
+};
+
+const DEFAULT_PIP_SETTINGS = {
+  backgroundRegionId: "content",
+  overlayRegionId: "webcam",
+  position: "bottom-right" as "top-left" | "top-right" | "bottom-left" | "bottom-right",
+  size: 35,
+  shape: "rounded" as "rounded" | "circle",
+  margin: 5,
+};
+
 export default function RegionSelectorPage() {
   const router = useRouter();
 
@@ -79,22 +130,18 @@ export default function RegionSelectorPage() {
   const [currentClipIndex, setCurrentClipIndex] = useState(0);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
 
-  // Layout mode state
+  // Layout mode state - will be loaded from localStorage
   const [layoutMode, setLayoutMode] = useState<"stack" | "pip">("stack");
 
-  // Stack mode settings
+  // Stack mode settings - will be loaded from localStorage
   const [splitRatio, setSplitRatio] = useState(0.6);
   const [topRegionId, setTopRegionId] = useState("content");
 
-  // PiP mode settings
-  const [pipSettings, setPipSettings] = useState({
-    backgroundRegionId: "content", // Which region fills the background
-    overlayRegionId: "webcam",     // Which region is the overlay
-    position: "bottom-right" as "top-left" | "top-right" | "bottom-left" | "bottom-right",
-    size: 25, // Percentage of width (10-40%)
-    shape: "rounded" as "rounded" | "circle",
-    margin: 5, // Percentage margin from edges
-  });
+  // PiP mode settings - will be loaded from localStorage
+  const [pipSettings, setPipSettings] = useState(DEFAULT_PIP_SETTINGS);
+
+  // Apply regions to all clips toggle
+  const [applyToAllClips, setApplyToAllClips] = useState(false);
 
   // Calculate the correct aspect ratio for a region based on its split portion
   // Output is 9:16 (1080x1920), source is 16:9
@@ -132,8 +179,8 @@ export default function RegionSelectorPage() {
     }
   }, [getTargetAspectRatio]);
 
-  // Default region template
-  const getDefaultRegions = (): Region[] => [
+  // Hardcoded default region template
+  const HARDCODED_DEFAULT_REGIONS: Region[] = [
     {
       id: "content",
       label: "Screen Content",
@@ -156,22 +203,58 @@ export default function RegionSelectorPage() {
     },
   ];
 
+  // Get default regions - tries localStorage first, falls back to hardcoded defaults
+  const getDefaultRegions = (): Region[] => {
+    try {
+      const savedRegions = localStorage.getItem(STORAGE_KEYS.regions);
+      if (savedRegions) {
+        const parsed = JSON.parse(savedRegions);
+        // Merge with hardcoded to ensure all fields exist (in case we add new fields later)
+        return HARDCODED_DEFAULT_REGIONS.map(defaultRegion => {
+          const saved = parsed.find((r: Region) => r.id === defaultRegion.id);
+          return saved ? { ...defaultRegion, ...saved } : defaultRegion;
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to load regions from localStorage:", e);
+    }
+    return HARDCODED_DEFAULT_REGIONS;
+  };
+
   // Per-clip regions - each clip can have different region positions
   const [allClipRegions, setAllClipRegions] = useState<Region[][]>([]);
 
   // Current clip's regions (derived from allClipRegions)
   const regions = allClipRegions[currentClipIndex] || getDefaultRegions();
 
-  // Update regions for the current clip
+  // Update regions for the current clip (or all clips if applyToAllClips is enabled)
   const setRegions = (newRegions: Region[] | ((prev: Region[]) => Region[])) => {
     setAllClipRegions(prev => {
       const updated = [...prev];
       const currentRegions = updated[currentClipIndex] || getDefaultRegions();
-      updated[currentClipIndex] = typeof newRegions === 'function'
+      const resolvedRegions = typeof newRegions === 'function'
         ? newRegions(currentRegions)
         : newRegions;
-      return updated;
+
+      if (applyToAllClips) {
+        // Apply the same regions to all clips
+        return updated.map(() => resolvedRegions);
+      } else {
+        // Only update the current clip
+        updated[currentClipIndex] = resolvedRegions;
+        return updated;
+      }
     });
+  };
+
+  // Apply current regions to all clips when toggle is turned on
+  const handleApplyToAllToggle = (enabled: boolean) => {
+    setApplyToAllClips(enabled);
+    if (enabled && allClipRegions.length > 0) {
+      // Apply current clip's regions to all other clips
+      const currentRegions = allClipRegions[currentClipIndex] || getDefaultRegions();
+      setAllClipRegions(prev => prev.map(() => [...currentRegions]));
+    }
   };
 
   const [dragState, setDragState] = useState<DragState>({
@@ -194,37 +277,14 @@ export default function RegionSelectorPage() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
 
-  // Caption options state - defaults: Montserrat Black, centered, green highlight
-  const [captionOptions, setCaptionOptions] = useState<CaptionOptions>({
-    enabled: true,
-    words_per_group: 3,
-    silence_threshold: 0.5, // 500ms gap forces new caption segment
-    word_spacing: 8,
-    font_size: 56,
-    font_name: "Montserrat Black",
-    primary_color: "#ffffff",
-    highlight_color: "#22C55E",
-    highlight_scale: 1.3,
-    position: "middle",
-    position_y: 50,
-    text_style: "uppercase",
-    animation_style: "color",
-    outline_enabled: true,
-    outline_color: "#000000",
-    outline_width: 5,
-    shadow_enabled: true,
-    shadow_color: "#000000",
-    background_enabled: false,
-    background_color: "#000000",
-    background_opacity: 50,
-  });
+  // Caption options state - will be loaded from localStorage
+  const [captionOptions, setCaptionOptions] = useState<CaptionOptions>(DEFAULT_CAPTION_OPTIONS);
 
-  // Silence removal options state
-  const [silenceRemoval, setSilenceRemoval] = useState({
-    enabled: false,
-    min_gap_duration: 0.4, // minimum gap in seconds to remove
-    padding: 0.05, // padding to keep around speech segments
-  });
+  // Silence removal options state - will be loaded from localStorage
+  const [silenceRemoval, setSilenceRemoval] = useState(DEFAULT_SILENCE_REMOVAL);
+
+  // Track if settings have been loaded from localStorage
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // For caption preview animation
   const [previewWordIndex, setPreviewWordIndex] = useState(0);
@@ -238,6 +298,113 @@ export default function RegionSelectorPage() {
     }, 600);
     return () => clearInterval(interval);
   }, [captionOptions.enabled, previewWords.length]);
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedCaptionOptions = localStorage.getItem(STORAGE_KEYS.captionOptions);
+      if (savedCaptionOptions) {
+        setCaptionOptions({ ...DEFAULT_CAPTION_OPTIONS, ...JSON.parse(savedCaptionOptions) });
+      }
+
+      const savedSilenceRemoval = localStorage.getItem(STORAGE_KEYS.silenceRemoval);
+      if (savedSilenceRemoval) {
+        setSilenceRemoval({ ...DEFAULT_SILENCE_REMOVAL, ...JSON.parse(savedSilenceRemoval) });
+      }
+
+      const savedLayoutMode = localStorage.getItem(STORAGE_KEYS.layoutMode);
+      if (savedLayoutMode) {
+        setLayoutMode(savedLayoutMode as "stack" | "pip");
+      }
+
+      const savedSplitRatio = localStorage.getItem(STORAGE_KEYS.splitRatio);
+      if (savedSplitRatio) {
+        setSplitRatio(parseFloat(savedSplitRatio));
+      }
+
+      const savedTopRegionId = localStorage.getItem(STORAGE_KEYS.topRegionId);
+      if (savedTopRegionId) {
+        setTopRegionId(savedTopRegionId);
+      }
+
+      const savedPipSettings = localStorage.getItem(STORAGE_KEYS.pipSettings);
+      if (savedPipSettings) {
+        setPipSettings({ ...DEFAULT_PIP_SETTINGS, ...JSON.parse(savedPipSettings) });
+      }
+    } catch (e) {
+      console.warn("Failed to load settings from localStorage:", e);
+    }
+    setSettingsLoaded(true);
+  }, []);
+
+  // Save settings to localStorage when they change
+  useEffect(() => {
+    if (!settingsLoaded) return; // Don't save until initial load is complete
+    try {
+      localStorage.setItem(STORAGE_KEYS.captionOptions, JSON.stringify(captionOptions));
+    } catch (e) {
+      console.warn("Failed to save caption options:", e);
+    }
+  }, [captionOptions, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.silenceRemoval, JSON.stringify(silenceRemoval));
+    } catch (e) {
+      console.warn("Failed to save silence removal settings:", e);
+    }
+  }, [silenceRemoval, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.layoutMode, layoutMode);
+    } catch (e) {
+      console.warn("Failed to save layout mode:", e);
+    }
+  }, [layoutMode, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.splitRatio, splitRatio.toString());
+    } catch (e) {
+      console.warn("Failed to save split ratio:", e);
+    }
+  }, [splitRatio, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.topRegionId, topRegionId);
+    } catch (e) {
+      console.warn("Failed to save top region id:", e);
+    }
+  }, [topRegionId, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.pipSettings, JSON.stringify(pipSettings));
+    } catch (e) {
+      console.warn("Failed to save pip settings:", e);
+    }
+  }, [pipSettings, settingsLoaded]);
+
+  // Save current regions to localStorage when they change
+  // This saves the current clip's regions as the default for future sessions
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    if (allClipRegions.length === 0) return;
+    const currentRegions = allClipRegions[currentClipIndex];
+    if (!currentRegions) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.regions, JSON.stringify(currentRegions));
+    } catch (e) {
+      console.warn("Failed to save regions:", e);
+    }
+  }, [allClipRegions, currentClipIndex, settingsLoaded]);
 
   // Load clips from in-memory store on mount
   useEffect(() => {
@@ -605,30 +772,49 @@ export default function RegionSelectorPage() {
                   <h2 className="text-base font-semibold text-white">Select Regions</h2>
                   <span className="text-xs text-zinc-500">Drag to move, corners to resize</span>
                 </div>
-                {/* Clip selector */}
+                {/* Clip selector and apply-to-all toggle */}
                 {clips.length > 1 && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-3">
+                    {/* Apply to all clips toggle */}
                     <button
-                      onClick={() => setCurrentClipIndex(Math.max(0, currentClipIndex - 1))}
-                      disabled={currentClipIndex === 0}
-                      className="p-0.5 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
+                      onClick={() => handleApplyToAllToggle(!applyToAllClips)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                        applyToAllClips
+                          ? "bg-purple-600 text-white"
+                          : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600"
+                      }`}
+                      title={applyToAllClips ? "Regions apply to all clips" : "Click to apply regions to all clips"}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
+                      Apply to all
                     </button>
-                    <span className="text-zinc-400 text-xs">
-                      {currentClipIndex + 1}/{clips.length}
-                    </span>
-                    <button
-                      onClick={() => setCurrentClipIndex(Math.min(clips.length - 1, currentClipIndex + 1))}
-                      disabled={currentClipIndex === clips.length - 1}
-                      className="p-0.5 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
+
+                    {/* Clip navigation */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setCurrentClipIndex(Math.max(0, currentClipIndex - 1))}
+                        disabled={currentClipIndex === 0}
+                        className="p-0.5 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      <span className="text-zinc-400 text-xs">
+                        {currentClipIndex + 1}/{clips.length}
+                      </span>
+                      <button
+                        onClick={() => setCurrentClipIndex(Math.min(clips.length - 1, currentClipIndex + 1))}
+                        disabled={currentClipIndex === clips.length - 1}
+                        className="p-0.5 text-zinc-400 hover:text-white disabled:text-zinc-600 disabled:cursor-not-allowed"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
