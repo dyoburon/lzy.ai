@@ -207,7 +207,7 @@ export default function RegionSelectorPage() {
     highlight_scale: 1.3,
     position: "middle",
     position_y: 50,
-    text_style: "normal",
+    text_style: "uppercase",
     animation_style: "color",
     outline_enabled: true,
     outline_color: "#000000",
