@@ -1335,13 +1335,13 @@ export default function RegionSelectorPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs text-zinc-400">Minimum Gap</label>
-                      <span className="text-xs text-purple-400 font-mono">{silenceRemoval.min_gap_duration.toFixed(1)}s</span>
+                      <span className="text-xs text-purple-400 font-mono">{silenceRemoval.min_gap_duration.toFixed(2)}s</span>
                     </div>
                     <input
                       type="range"
-                      min="0.1"
+                      min="0.01"
                       max="1.5"
-                      step="0.1"
+                      step="0.01"
                       value={silenceRemoval.min_gap_duration}
                       onChange={(e) => setSilenceRemoval(prev => ({ ...prev, min_gap_duration: parseFloat(e.target.value) }))}
                       className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
@@ -1353,7 +1353,7 @@ export default function RegionSelectorPage() {
                   </div>
 
                   <p className="text-[10px] text-zinc-500">
-                    Gaps longer than {silenceRemoval.min_gap_duration}s will be cut out.
+                    Gaps longer than {silenceRemoval.min_gap_duration.toFixed(2)}s will be cut out.
                   </p>
                 </div>
               ) : (

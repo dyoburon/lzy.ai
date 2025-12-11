@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import base64
 from openai import OpenAI
+from PIL import ImageFont
 from services.temporal_captions import group_words_by_temporal_proximity
 
 # Configure OpenAI
@@ -20,6 +21,53 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 _SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_SERVICES_DIR)
 FONTS_DIR = os.path.join(_PROJECT_ROOT, 'fonts', 'Montserrat', 'static')
+
+# Font file mapping for Pillow text measurement
+FONT_FILES = {
+    "Montserrat Black": os.path.join(FONTS_DIR, "Montserrat-Black.ttf"),
+    "Montserrat Bold": os.path.join(FONTS_DIR, "Montserrat-Bold.ttf"),
+    "Montserrat": os.path.join(FONTS_DIR, "Montserrat-Regular.ttf"),
+}
+
+
+def measure_text_width(text: str, font_name: str, font_size: int) -> int:
+    """
+    Measure the pixel width of text using the actual font.
+    Returns the width in pixels.
+    """
+    font_path = FONT_FILES.get(font_name)
+
+    if font_path and os.path.exists(font_path):
+        try:
+            font = ImageFont.truetype(font_path, font_size)
+            # getlength gives accurate width for the text
+            return int(font.getlength(text))
+        except Exception as e:
+            print(f"[measure_text_width] Error loading font: {e}")
+
+    # Fallback: estimate based on character count (rough approximation for bold fonts)
+    # Bold fonts are typically ~60% of font height per character
+    return int(len(text) * font_size * 0.6)
+
+
+def calculate_fit_font_size(text: str, font_name: str, target_size: int,
+                            max_width: int, min_size: int = 32) -> int:
+    """
+    Calculate the largest font size that fits the text within max_width.
+    Won't go below min_size or above target_size.
+    """
+    # Start with target size and measure
+    width = measure_text_width(text, font_name, target_size)
+
+    if width <= max_width:
+        return target_size
+
+    # Calculate the scaling factor needed
+    scale = max_width / width
+    fitted_size = int(target_size * scale)
+
+    # Clamp to minimum size
+    return max(fitted_size, min_size)
 
 
 def get_openai_client():
@@ -279,7 +327,7 @@ def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
                            word_spacing=8, outline_enabled=True, outline_width=3,
                            shadow_enabled=True, shadow_color="&H000000",
                            background_enabled=False, background_color="&H000000",
-                           background_opacity=50):
+                           background_opacity=50, caption_font_sizes=None):
     """
     Generate ASS subtitle file content for animated captions.
 
@@ -303,6 +351,7 @@ def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
         background_enabled: Whether to show background box
         background_color: Background color
         background_opacity: Background opacity (0-100)
+        caption_font_sizes: Optional list of font sizes per caption (for auto-scaling)
 
     Returns:
         String content for .ass file
@@ -392,10 +441,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         secs = seconds % 60
         return f"{hours}:{minutes:02d}:{secs:05.2f}"
 
-    for caption in captions:
+    for caption_idx, caption in enumerate(captions):
         words = caption['words']
         group_start = caption['start']
         group_end = caption['end']
+
+        # Get per-caption font size if available, otherwise use default
+        caption_font_size = font_size
+        if caption_font_sizes and caption_idx < len(caption_font_sizes):
+            caption_font_size = caption_font_sizes[caption_idx]
+
+        # Calculate highlight size for this caption
+        caption_highlight_size = int(caption_font_size * highlight_scale)
 
         # For each moment within this caption group, generate a subtitle line
         # that shows the full text but with the current word highlighted
@@ -425,21 +482,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if j == i:
                     # Highlighted word - apply animation based on style
                     # Use explicit \1c (primary color) for each word to avoid reset issues
+                    # Include \fs for per-caption font size
                     if animation_style == 'scale':
                         # Only scale, keep primary color
-                        text_parts.append(f"{{\\1c{prim_color}\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}")
+                        text_parts.append(f"{{\\fs{caption_highlight_size}\\1c{prim_color}\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}")
                     elif animation_style == 'color':
-                        # Only color change, no scale
-                        text_parts.append(f"{{\\1c{hl_color}}}{word_text}")
+                        # Only color change, no scale - use highlight size for consistency
+                        text_parts.append(f"{{\\fs{caption_font_size}\\1c{hl_color}}}{word_text}")
                     elif animation_style == 'glow':
                         # Color + blur for glow effect
-                        text_parts.append(f"{{\\1c{hl_color}\\blur2}}{word_text}")
+                        text_parts.append(f"{{\\fs{caption_font_size}\\1c{hl_color}\\blur2}}{word_text}")
                     else:  # 'both' or default
                         # Scale + color
-                        text_parts.append(f"{{\\1c{hl_color}\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}")
+                        text_parts.append(f"{{\\fs{caption_highlight_size}\\1c{hl_color}\\fscx{int(highlight_scale * 100)}\\fscy{int(highlight_scale * 100)}}}{word_text}")
                 else:
-                    # Non-highlighted word - explicitly set primary color
-                    text_parts.append(f"{{\\1c{prim_color}}}{word_text}")
+                    # Non-highlighted word - explicitly set primary color and font size
+                    text_parts.append(f"{{\\fs{caption_font_size}\\1c{prim_color}}}{word_text}")
 
             full_text = " ".join(text_parts)
 
@@ -570,6 +628,32 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
         input_file.close()
         input_path = input_file.name
 
+        # Auto-scale font sizes per caption to prevent text overflow
+        # Max width is video width minus padding (40px each side)
+        max_text_width = 1080 - 80
+        caption_font_sizes = []
+
+        for caption in captions:
+            # Get the full text for this caption group
+            caption_text = " ".join([w['word'] for w in caption['words']])
+
+            # Apply text style for measurement
+            if text_style == 'uppercase':
+                caption_text = caption_text.upper()
+
+            # Calculate the font size that fits
+            fitted_size = calculate_fit_font_size(
+                caption_text,
+                font_name,
+                font_size,
+                max_text_width,
+                min_size=32  # Never go below 32px
+            )
+            caption_font_sizes.append(fitted_size)
+
+            if fitted_size < font_size:
+                print(f"[create_caption_overlay_video] Auto-scaled '{caption_text}' from {font_size}px to {fitted_size}px")
+
         # Generate ASS subtitles with all styling options
         ass_content = generate_ass_subtitles(
             captions,
@@ -589,7 +673,8 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
             shadow_color=shadow_color,
             background_enabled=background_enabled,
             background_color=background_color,
-            background_opacity=background_opacity
+            background_opacity=background_opacity,
+            caption_font_sizes=caption_font_sizes
         )
 
         # Write ASS to temp file

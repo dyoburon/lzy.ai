@@ -1235,6 +1235,18 @@ def remove_silence_from_video(video_data_base64, min_gap_duration=0.4, padding=0
 
         print(f"[remove_silence] Found {len(words)} words, {len(segments)} segments, {len(gaps_removed)} gaps to remove")
 
+        # Debug: Print first few gaps found
+        if gaps_removed:
+            print(f"[remove_silence] First few gaps: {gaps_removed[:5]}")
+        else:
+            # Debug: Print gaps that were too small
+            small_gaps = []
+            for i in range(1, len(words)):
+                gap = words[i]['start'] - words[i-1]['end']
+                if gap > 0:
+                    small_gaps.append({'gap': round(gap, 3), 'between': f"{words[i-1]['word']} -> {words[i]['word']}"})
+            print(f"[remove_silence] No gaps > {min_gap_duration}s found. All gaps: {small_gaps[:10]}")
+
         if len(gaps_removed) == 0:
             print("[remove_silence] No significant gaps found, returning original video")
             return {
