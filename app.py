@@ -887,6 +887,73 @@ def process_audio():
     return jsonify(result)
 
 
+# --- Captions Routes ---
+@app.route('/api/captions/add', methods=['POST'])
+def add_captions():
+    """
+    Add animated captions to a video.
+
+    Request body:
+    {
+        "video_data": "base64 encoded video",
+        "caption_options": {
+            "font_size": 56,
+            "font_name": "Arial Black",
+            "primary_color": "#ffffff",
+            "highlight_color": "#fbbf24",
+            "position_y": 85,
+            "words_per_group": 3,
+            "text_style": "normal" | "uppercase",
+            "animation_style": "scale" | "color" | "both",
+            "outline_enabled": true,
+            "shadow_enabled": true,
+            ...
+        }
+    }
+    """
+    from services.captions import transcribe_video_for_captions, create_caption_overlay_video
+
+    data = request.json
+    video_data = data.get('video_data')
+    caption_options = data.get('caption_options', {})
+
+    if not video_data:
+        return jsonify({"error": "No video_data provided"}), 400
+
+    # Check for OpenAI API key
+    if not os.environ.get("OPENAI_API_KEY"):
+        return jsonify({
+            "error": "OPENAI_API_KEY not configured. Captions require OpenAI Whisper API.",
+            "missing_env": "OPENAI_API_KEY"
+        }), 400
+
+    # Step 1: Transcribe the video to get word timestamps
+    words_per_group = caption_options.get('words_per_group', 3)
+    silence_threshold = caption_options.get('silence_threshold', 0.5)
+
+    transcription_result = transcribe_video_for_captions(
+        video_data,
+        words_per_group=words_per_group,
+        silence_threshold=silence_threshold
+    )
+
+    if "error" in transcription_result:
+        return jsonify(transcription_result), 400
+
+    captions = transcription_result.get('captions', [])
+
+    if not captions:
+        return jsonify({"error": "No speech detected in video"}), 400
+
+    # Step 2: Add captions to the video
+    result = create_caption_overlay_video(video_data, captions, caption_options)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
 # --- Debug Routes ---
 @app.route('/api/debug/sample-short', methods=['GET'])
 def get_sample_short():
@@ -1259,6 +1326,290 @@ def add_captions_to_video():
         "captions_applied": True,
         "num_caption_groups": len(captions)
     })
+
+
+# --- Simple Video Editor Routes ---
+from services.simple_editor import (
+    get_video_info,
+    analyze_video_for_gaps,
+    remove_gaps_from_region,
+    slice_video,
+    export_with_cuts_removed,
+    export_segments
+)
+
+
+@app.route('/api/editor/upload', methods=['POST'])
+def editor_upload_video():
+    """
+    Upload a video file for editing.
+    Returns the server path and video metadata.
+    """
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+
+    file = request.files['video']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    # Create unique filename
+    filename = secure_filename(file.filename)
+    unique_id = str(uuid.uuid4())[:8]
+    name, ext = os.path.splitext(filename)
+    unique_filename = f"{name}_{unique_id}{ext}"
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+    file.save(filepath)
+
+    # Get video info
+    try:
+        info = get_video_info(filepath)
+    except Exception as e:
+        info = {"error": str(e)}
+
+    return jsonify({
+        "success": True,
+        "video_path": filepath,
+        "filename": unique_filename,
+        "info": info
+    })
+
+
+@app.route('/api/editor/info', methods=['POST'])
+def editor_video_info():
+    """
+    Get video metadata (duration, dimensions, fps).
+
+    Request body:
+    {
+        "video_path": "/path/to/video.mp4"
+    }
+    """
+    data = request.json
+    video_path = data.get('video_path')
+
+    if not video_path:
+        return jsonify({"error": "No video_path provided"}), 400
+
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video file not found"}), 400
+
+    try:
+        info = get_video_info(video_path)
+        return jsonify({"success": True, **info})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route('/api/editor/analyze-gaps', methods=['POST'])
+def editor_analyze_gaps():
+    """
+    Analyze a video region for gaps/silences using Whisper.
+
+    Request body:
+    {
+        "video_path": "/path/to/video.mp4",
+        "start_time": 10.0,  // Optional - analyze full video if not provided
+        "end_time": 30.0,    // Optional
+        "min_gap_duration": 0.4  // Optional, default 0.4s
+    }
+
+    Returns word timestamps and detected gaps.
+    """
+    if not os.environ.get("OPENAI_API_KEY"):
+        return jsonify({
+            "error": "OPENAI_API_KEY not configured. Gap detection requires OpenAI Whisper API.",
+            "missing_env": "OPENAI_API_KEY"
+        }), 400
+
+    data = request.json
+    video_path = data.get('video_path')
+    start_time = data.get('start_time')
+    end_time = data.get('end_time')
+    min_gap_duration = data.get('min_gap_duration', 0.4)
+
+    if not video_path:
+        return jsonify({"error": "No video_path provided"}), 400
+
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video file not found"}), 400
+
+    try:
+        result = analyze_video_for_gaps(
+            video_path,
+            start_time=start_time,
+            end_time=end_time,
+            min_gap_duration=min_gap_duration
+        )
+        return jsonify({"success": True, **result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route('/api/editor/remove-gaps', methods=['POST'])
+def editor_remove_gaps():
+    """
+    Remove gaps from a specific region of the video.
+
+    Request body:
+    {
+        "video_path": "/path/to/video.mp4",
+        "region_start": 10.0,
+        "region_end": 30.0,
+        "gaps": [...],  // Array of gaps from analyze-gaps endpoint
+        "padding": 0.05  // Optional, default 0.05s
+    }
+
+    Returns the region with gaps removed as base64.
+    """
+    data = request.json
+    video_path = data.get('video_path')
+    region_start = data.get('region_start')
+    region_end = data.get('region_end')
+    gaps = data.get('gaps', [])
+    padding = data.get('padding', 0.05)
+
+    if not video_path:
+        return jsonify({"error": "No video_path provided"}), 400
+
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video file not found"}), 400
+
+    if region_start is None or region_end is None:
+        return jsonify({"error": "region_start and region_end required"}), 400
+
+    try:
+        video_data = remove_gaps_from_region(
+            video_path,
+            region_start,
+            region_end,
+            gaps,
+            padding=padding
+        )
+        return jsonify({
+            "success": True,
+            "video_data": video_data,
+            "gaps_removed": len([g for g in gaps if g['start'] >= region_start and g['end'] <= region_end])
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route('/api/editor/slice', methods=['POST'])
+def editor_slice_video():
+    """
+    Slice video at specified cut points.
+
+    Request body:
+    {
+        "video_path": "/path/to/video.mp4",
+        "cuts": [10.5, 25.0, 40.0]  // Cut points in seconds
+    }
+
+    Returns array of video segments as base64.
+    """
+    data = request.json
+    video_path = data.get('video_path')
+    cuts = data.get('cuts', [])
+
+    if not video_path:
+        return jsonify({"error": "No video_path provided"}), 400
+
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video file not found"}), 400
+
+    try:
+        segments = slice_video(video_path, cuts)
+        return jsonify({
+            "success": True,
+            "segments": segments,
+            "num_segments": len(segments)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route('/api/editor/export', methods=['POST'])
+def editor_export():
+    """
+    Export final video with specified segments or cuts removed.
+
+    Request body (segments mode):
+    {
+        "video_path": "/path/to/video.mp4",
+        "mode": "segments",
+        "segments": [
+            {"start": 0, "end": 10.5},
+            {"start": 25.0, "end": 40.0}
+        ]
+    }
+
+    Request body (cuts mode):
+    {
+        "video_path": "/path/to/video.mp4",
+        "mode": "cuts",
+        "cuts_to_remove": [
+            [10.5, 25.0],  // Remove from 10.5s to 25.0s
+            [45.0, 50.0]   // Remove from 45s to 50s
+        ]
+    }
+
+    Returns the exported video as base64.
+    """
+    data = request.json
+    video_path = data.get('video_path')
+    mode = data.get('mode', 'segments')
+
+    if not video_path:
+        return jsonify({"error": "No video_path provided"}), 400
+
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video file not found"}), 400
+
+    try:
+        if mode == 'cuts':
+            cuts_to_remove = data.get('cuts_to_remove', [])
+            if not cuts_to_remove:
+                return jsonify({"error": "No cuts_to_remove provided"}), 400
+            video_data = export_with_cuts_removed(video_path, cuts_to_remove)
+        else:
+            segments = data.get('segments', [])
+            if not segments:
+                return jsonify({"error": "No segments provided"}), 400
+            video_data = export_segments(video_path, segments)
+
+        return jsonify({
+            "success": True,
+            "video_data": video_data
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route('/api/editor/cleanup', methods=['POST'])
+def editor_cleanup():
+    """
+    Clean up an uploaded video file.
+
+    Request body:
+    {
+        "video_path": "/path/to/video.mp4"
+    }
+    """
+    data = request.json
+    video_path = data.get('video_path')
+
+    if not video_path:
+        return jsonify({"error": "No video_path provided"}), 400
+
+    try:
+        if os.path.exists(video_path):
+            os.remove(video_path)
+            return jsonify({"success": True, "message": "File cleaned up"})
+        else:
+            return jsonify({"success": True, "message": "File already removed"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 if __name__ == '__main__':
