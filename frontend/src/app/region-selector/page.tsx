@@ -194,24 +194,24 @@ export default function RegionSelectorPage() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
 
-  // Caption options state
+  // Caption options state - defaults: Montserrat Black, centered, green highlight
   const [captionOptions, setCaptionOptions] = useState<CaptionOptions>({
     enabled: true,
     words_per_group: 3,
     silence_threshold: 0.5, // 500ms gap forces new caption segment
     word_spacing: 8,
     font_size: 56,
-    font_name: "Arial Black",
+    font_name: "Montserrat Black",
     primary_color: "#ffffff",
-    highlight_color: "#fbbf24",
+    highlight_color: "#22C55E",
     highlight_scale: 1.3,
-    position: "bottom",
-    position_y: 85,
+    position: "middle",
+    position_y: 50,
     text_style: "normal",
-    animation_style: "both",
+    animation_style: "color",
     outline_enabled: true,
     outline_color: "#000000",
-    outline_width: 3,
+    outline_width: 5,
     shadow_enabled: true,
     shadow_color: "#000000",
     background_enabled: false,
@@ -1058,6 +1058,8 @@ export default function RegionSelectorPage() {
                             {(() => {
                               const SCALE = 9; // 1080px output / 120px preview
                               const fontMap: Record<string, string> = {
+                                "Montserrat Black": "var(--font-montserrat), Montserrat, Arial, sans-serif",
+                                "Montserrat Bold": "var(--font-montserrat), Montserrat, Arial, sans-serif",
                                 "Arial": "Arial, sans-serif",
                                 "Arial Black": "'Arial Black', sans-serif",
                                 "Verdana": "Verdana, sans-serif",
@@ -1090,7 +1092,7 @@ export default function RegionSelectorPage() {
                                     className="transition-all duration-150"
                                     style={{
                                       fontFamily: fontMap[captionOptions.font_name] || "Arial, sans-serif",
-                                      fontWeight: "bold",
+                                      fontWeight: captionOptions.font_name.includes("Black") ? 900 : 700,
                                       fontSize: `${previewFontSize}px`,
                                       color: textColor,
                                       transform: isActive && (captionOptions.animation_style === "scale" || captionOptions.animation_style === "both") ? `scale(${captionOptions.highlight_scale})` : "scale(1)",
@@ -1123,6 +1125,10 @@ export default function RegionSelectorPage() {
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_name: e.target.value }))}
                         className="w-full px-2 py-1 bg-zinc-700 border border-zinc-600 rounded text-white text-xs focus:outline-none"
                       >
+                        <optgroup label="Shorts Style">
+                          <option value="Montserrat Black">Montserrat Black</option>
+                          <option value="Montserrat Bold">Montserrat Bold</option>
+                        </optgroup>
                         <optgroup label="Sans-Serif">
                           <option value="Arial">Arial</option>
                           <option value="Arial Black">Arial Black</option>
@@ -1155,7 +1161,7 @@ export default function RegionSelectorPage() {
                     {/* Size */}
                     <div>
                       <label className="block text-xs text-zinc-500 mb-0.5">Size: {captionOptions.font_size}px</label>
-                      <input type="range" min="32" max="96" step="4" value={captionOptions.font_size}
+                      <input type="range" min="32" max="150" step="4" value={captionOptions.font_size}
                         onChange={(e) => setCaptionOptions(prev => ({ ...prev, font_size: parseInt(e.target.value) }))}
                         className="w-full accent-purple-500 h-1.5" />
                     </div>
@@ -1271,7 +1277,7 @@ export default function RegionSelectorPage() {
                       </div>
                       {/* Quick presets */}
                       <div className="flex gap-1 mt-1">
-                        {["#FBBF24", "#22D3EE", "#22C55E", "#EC4899", "#EF4444"].map((color) => (
+                        {["#22C55E", "#FBBF24", "#22D3EE", "#EC4899", "#EF4444"].map((color) => (
                           <button
                             key={color}
                             onClick={() => setCaptionOptions(prev => ({ ...prev, highlight_color: color }))}

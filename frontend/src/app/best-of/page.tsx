@@ -75,6 +75,8 @@ const colorMap: Record<string, string> = {
 };
 
 const fontMap: Record<string, string> = {
+  "Montserrat Black": "var(--font-montserrat), Montserrat, Arial, sans-serif",
+  "Montserrat Bold": "var(--font-montserrat), Montserrat, Arial, sans-serif",
   "Arial": "Arial, sans-serif",
   "Arial Bold": "Arial, sans-serif",
   "Impact": "Impact, sans-serif",
@@ -84,7 +86,6 @@ const fontMap: Record<string, string> = {
   "Comic Sans MS": "'Comic Sans MS', cursive",
   "Bebas Neue": "'Bebas Neue', Impact, sans-serif",
   "Oswald": "Oswald, Impact, sans-serif",
-  "Montserrat": "Montserrat, Arial, sans-serif",
 };
 
 function MissingEnvMessage({ missingVar }: { missingVar: string }) {
@@ -186,11 +187,11 @@ export default function BestOfPage() {
     words_per_group: 3,
     silence_threshold: 0.5,
     font_size: 56,
-    font_name: "Arial Bold",
+    font_name: "Montserrat Black",
     primary_color: "white",
-    highlight_color: "yellow",
+    highlight_color: "green",
     highlight_scale: 1.3,
-    position_y: 85,
+    position_y: 50,
   });
 
   // Caption preview animation

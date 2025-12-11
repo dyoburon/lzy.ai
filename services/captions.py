@@ -15,6 +15,12 @@ from services.temporal_captions import group_words_by_temporal_proximity
 # Configure OpenAI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
+# Fonts directory for custom fonts (Montserrat, etc.)
+# Use absolute path relative to this file's location
+_SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SERVICES_DIR)
+FONTS_DIR = os.path.join(_PROJECT_ROOT, 'fonts', 'Montserrat', 'static')
+
 
 def get_openai_client():
     """Get configured OpenAI client."""
@@ -334,8 +340,10 @@ def generate_ass_subtitles(captions, video_width=1080, video_height=1920,
         margin_v = int(video_height * ((100 - position_y) / 100))
 
     # Calculate outline and shadow settings
-    actual_outline = outline_width if outline_enabled else 0
-    actual_shadow = 2 if shadow_enabled else 0
+    # Scale outline with font size for better readability (minimum 4px for large text)
+    scaled_outline = max(outline_width, int(font_size / 14)) if outline_enabled else 0
+    actual_outline = scaled_outline
+    actual_shadow = 3 if shadow_enabled else 0  # Increased shadow for better readability
 
     # BorderStyle: 1 = outline + shadow, 3 = opaque box background
     border_style = 3 if background_enabled else 1
@@ -603,10 +611,18 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
 
         # Build ffmpeg command with ASS subtitles
         # Using subtitles filter to burn in the ASS file
+        # Include fontsdir to load custom fonts like Montserrat
+        ass_filter = f"ass={ass_path}"
+        if os.path.exists(FONTS_DIR):
+            ass_filter = f"ass={ass_path}:fontsdir={FONTS_DIR}"
+            print(f"[create_caption_overlay_video] Using custom fonts from: {FONTS_DIR}")
+        else:
+            print(f"[create_caption_overlay_video] WARNING: Fonts dir not found at {FONTS_DIR}")
+
         cmd = [
             'ffmpeg', '-y',
             '-i', input_path,
-            '-vf', f"ass={ass_path}",
+            '-vf', ass_filter,
             '-c:v', 'libx264',
             '-preset', 'fast',
             '-crf', '23',
