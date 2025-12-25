@@ -326,7 +326,9 @@ export default function ShortsPage() {
   const handleProcess = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!uploadedVideoPath) {
+    // In non-curator mode, video must be uploaded first
+    // In curator mode, we only need transcript to find moments
+    if (!curatorMode && !uploadedVideoPath) {
       setError("Please upload a video file first");
       return;
     }
@@ -526,9 +528,11 @@ export default function ShortsPage() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const canSubmit = uploadedVideoPath && !uploading && (
+  // In curator mode, only need transcript to find moments (no video upload required yet)
+  // Video upload is required when clipping
+  const canSubmit = !uploading && (
     transcriptMode === "youtube" ? url : customTranscript.trim()
-  );
+  ) && (curatorMode || uploadedVideoPath);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900">
@@ -702,7 +706,8 @@ export default function ShortsPage() {
           <>
             {/* Input Form */}
             <form onSubmit={handleProcess} className="space-y-6 mb-8">
-              {/* Video Upload */}
+              {/* Video Upload - Hidden in curator mode (upload happens after finding moments) */}
+              {!curatorMode && (
               <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
                 <label className="block text-sm font-medium text-white mb-2">
                   Upload Video
@@ -779,6 +784,7 @@ export default function ShortsPage() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* Transcript Source */}
               <div className="p-6 bg-zinc-800/50 border border-zinc-700 rounded-lg">
@@ -848,7 +854,7 @@ export default function ShortsPage() {
                       Curator Mode
                     </label>
                     <p className="text-sm text-zinc-500 mt-1">
-                      Preview 10-15 potential moments and select which ones to clip
+                      Find moments from transcript first, then upload video to clip
                     </p>
                   </div>
                   <button
@@ -1073,7 +1079,7 @@ export default function ShortsPage() {
                         {detectResult.moments.length} Potential Moments Found
                       </h2>
                       <p className="text-zinc-400 text-sm">
-                        Select the moments you want to clip, then click &quot;Clip Selected Moments&quot;
+                        Select moments below, upload your video, then clip
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1091,10 +1097,77 @@ export default function ShortsPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">
-                      {selectedMoments.size} of {detectResult.moments.length} moments selected
-                    </span>
+                  <span className="text-sm text-zinc-400">
+                    {selectedMoments.size} of {detectResult.moments.length} moments selected
+                  </span>
+                </div>
+
+                {/* Video Upload Section - Only shows if video not yet uploaded */}
+                {!uploadedVideoPath && (
+                  <div className="p-6 bg-amber-900/20 border border-amber-700/50 rounded-lg">
+                    <div className="flex items-center gap-3 mb-4">
+                      <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <div>
+                        <h3 className="text-amber-400 font-medium">Upload Video to Clip</h3>
+                        <p className="text-zinc-400 text-sm">Upload the video file to create clips from selected moments</p>
+                      </div>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="video/*"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      disabled={uploading}
+                    />
+                    <div
+                      onClick={() => !uploading && fileInputRef.current?.click()}
+                      onDragEnter={handleDragEnter}
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
+                        uploading
+                          ? "border-zinc-700 cursor-not-allowed"
+                          : isDragging
+                          ? "border-amber-500 bg-amber-500/10 scale-[1.02]"
+                          : "border-amber-700/50 cursor-pointer hover:border-amber-500"
+                      }`}
+                    >
+                      {uploading ? (
+                        <div>
+                          <p className="text-white font-medium mb-2">Uploading... {uploadProgress}%</p>
+                          <div className="w-full bg-zinc-700 rounded-full h-2">
+                            <div
+                              className="bg-amber-500 h-2 rounded-full transition-all"
+                              style={{ width: `${uploadProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-zinc-300">Drag and drop your video here or click to browse</p>
+                          <p className="text-zinc-500 text-sm mt-1">MP4, MOV, WebM, etc.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Video Uploaded Confirmation */}
+                {uploadedVideoPath && (
+                  <div className="p-4 bg-green-900/20 border border-green-700/50 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <div>
+                        <p className="text-green-400 font-medium">Video Ready</p>
+                        <p className="text-zinc-400 text-sm">{videoFile?.name}</p>
+                      </div>
+                    </div>
                     <button
                       onClick={handleClipSelectedMoments}
                       disabled={clipping || selectedMoments.size === 0}
@@ -1113,12 +1186,12 @@ export default function ShortsPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
-                          Clip Selected Moments ({selectedMoments.size})
+                          Clip {selectedMoments.size} Moment{selectedMoments.size !== 1 ? 's' : ''}
                         </>
                       )}
                     </button>
                   </div>
-                </div>
+                )}
 
                 {/* Moment Cards */}
                 <div className="grid gap-4">
@@ -1172,31 +1245,33 @@ export default function ShortsPage() {
                   ))}
                 </div>
 
-                {/* Bottom Action */}
-                <div className="flex justify-center">
-                  <button
-                    onClick={handleClipSelectedMoments}
-                    disabled={clipping || selectedMoments.size === 0}
-                    className="px-8 py-4 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors text-lg flex items-center gap-3"
-                  >
-                    {clipping ? (
-                      <>
-                        <svg className="w-6 h-6 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        Clipping Selected Moments...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Clip {selectedMoments.size} Selected Moment{selectedMoments.size !== 1 ? 's' : ''}
-                      </>
-                    )}
-                  </button>
-                </div>
+                {/* Bottom Action - Only show if video is uploaded */}
+                {uploadedVideoPath && (
+                  <div className="flex justify-center">
+                    <button
+                      onClick={handleClipSelectedMoments}
+                      disabled={clipping || selectedMoments.size === 0}
+                      className="px-8 py-4 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors text-lg flex items-center gap-3"
+                    >
+                      {clipping ? (
+                        <>
+                          <svg className="w-6 h-6 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Clipping Selected Moments...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Clip {selectedMoments.size} Selected Moment{selectedMoments.size !== 1 ? 's' : ''}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
