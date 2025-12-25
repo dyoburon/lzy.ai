@@ -95,6 +95,9 @@ export default function ShortsPage() {
   const [wakeWord, setWakeWord] = useState("");
   const [onlyWakeWordClips, setOnlyWakeWordClips] = useState(false);
 
+  // Clip selection for sending to region selector
+  const [selectedClips, setSelectedClips] = useState<Set<number>>(new Set());
+
   // Drag and drop state
   const [isDragging, setIsDragging] = useState(false);
 
@@ -112,9 +115,23 @@ export default function ShortsPage() {
   // Navigate to region selector with clips
   const handleProcessToVertical = () => {
     if (!clipResult?.clips) return;
+    // Only send selected clips
+    const clipsToSend = clipResult.clips.filter((_, index) => selectedClips.has(index));
+    if (clipsToSend.length === 0) return;
     // Store clips in memory (avoids sessionStorage 5MB limit)
-    setPendingClips(clipResult.clips);
+    setPendingClips(clipsToSend);
     router.push("/region-selector");
+  };
+
+  // Toggle clip selection
+  const toggleClipSelection = (index: number) => {
+    const newSelected = new Set(selectedClips);
+    if (newSelected.has(index)) {
+      newSelected.delete(index);
+    } else {
+      newSelected.add(index);
+    }
+    setSelectedClips(newSelected);
   };
 
   // Cleanup blob URLs on unmount
@@ -123,6 +140,14 @@ export default function ShortsPage() {
       clipVideoUrls.forEach(url => URL.revokeObjectURL(url));
     };
   }, [clipVideoUrls]);
+
+  // Auto-select all clips when clipResult changes
+  useEffect(() => {
+    if (clipResult?.clips) {
+      const allIndices = new Set(clipResult.clips.map((_, i) => i));
+      setSelectedClips(allIndices);
+    }
+  }, [clipResult]);
 
   // Check config on mount
   useEffect(() => {
@@ -1286,17 +1311,18 @@ export default function ShortsPage() {
                         {clipResult.clips.filter(c => c.clip_result.success).length} Clips Created!
                       </h2>
                       <p className="text-zinc-400 text-sm">
-                        Ready to convert to vertical shorts
+                        Select clips below, then create vertical shorts ({selectedClips.size} selected)
                       </p>
                     </div>
                     <button
                       onClick={handleProcessToVertical}
-                      className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                      disabled={selectedClips.size === 0}
+                      className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z" />
                       </svg>
-                      Create Vertical Shorts
+                      Create Vertical Shorts ({selectedClips.size})
                     </button>
                   </div>
                 </div>
@@ -1315,11 +1341,40 @@ export default function ShortsPage() {
                     {clipResult.clips.map((clip, index) => (
                       <div
                         key={index}
-                        className={`p-4 rounded-lg border ${getViralScoreBg(clip.moment.viral_score)}`}
+                        className={`p-4 rounded-lg border ${getViralScoreBg(clip.moment.viral_score)} ${
+                          selectedClips.has(index) ? 'ring-2 ring-purple-500' : ''
+                        }`}
                       >
-                        <div className="flex items-center justify-between mb-3">
-                          <div>
-                            <h3 className="text-white font-medium">{clip.moment.title}</h3>
+                        <div className="flex items-start gap-3 mb-3">
+                          {/* Checkbox */}
+                          <button
+                            onClick={() => toggleClipSelection(index)}
+                            className={`flex-shrink-0 w-6 h-6 mt-0.5 rounded border-2 flex items-center justify-center transition-colors ${
+                              selectedClips.has(index)
+                                ? 'bg-purple-600 border-purple-600'
+                                : 'border-zinc-600 hover:border-zinc-500'
+                            }`}
+                          >
+                            {selectedClips.has(index) && (
+                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h3 className="text-white font-medium">{clip.moment.title}</h3>
+                              {clip.clip_result.success ? (
+                                <button
+                                  onClick={() => handleDownload(index)}
+                                  className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded transition-colors"
+                                >
+                                  Download
+                                </button>
+                              ) : (
+                                <span className="text-red-400">✗</span>
+                              )}
+                            </div>
                             <div className="flex items-center gap-3 mt-1 flex-wrap">
                               <span className="text-purple-400 font-mono text-sm">
                                 {clip.moment.start_time} - {clip.moment.end_time}
@@ -1341,16 +1396,6 @@ export default function ShortsPage() {
                               )}
                             </div>
                           </div>
-                          {clip.clip_result.success ? (
-                            <button
-                              onClick={() => handleDownload(index)}
-                              className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded transition-colors"
-                            >
-                              Download
-                            </button>
-                          ) : (
-                            <span className="text-red-400">✗</span>
-                          )}
                         </div>
                         <p className="text-zinc-400 text-sm mb-3">{clip.moment.reason}</p>
 
