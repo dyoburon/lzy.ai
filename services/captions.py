@@ -749,3 +749,148 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
             if path in dir() and os.path.exists(eval(path)):
                 os.unlink(eval(path))
         return {"error": f"Error adding captions: {str(e)}"}
+
+
+def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black", font_size=48):
+    """
+    Add a title overlay at the top of a video with a dark gradient background.
+
+    Creates a professional-looking title bar similar to viral shorts, with:
+    - Semi-transparent dark gradient at the top (~200px)
+    - Bold white text centered in Montserrat Black font
+    - Auto-wrapping for longer titles
+
+    Args:
+        video_data_base64: Base64 encoded video data
+        title_text: The title text to display
+        font_name: Font to use (default "Montserrat Black")
+        font_size: Base font size (default 48)
+
+    Returns:
+        Dict with success status and processed video as base64
+    """
+    if not title_text or not title_text.strip():
+        return {"error": "No title text provided"}
+
+    try:
+        # Decode input video to temp file
+        input_data = base64.b64decode(video_data_base64)
+        input_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        input_file.write(input_data)
+        input_file.close()
+        input_path = input_file.name
+
+        # Create temp output file
+        output_file = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+        output_file.close()
+        output_path = output_file.name
+
+        # Video dimensions (assuming 1080x1920 vertical short)
+        video_width = 1080
+        video_height = 1920
+
+        # Title bar dimensions
+        title_bar_height = 200  # Height of the dark gradient area
+        padding_x = 40  # Horizontal padding
+        padding_y = 40  # Vertical padding from top
+
+        # Calculate available width for text
+        max_text_width = video_width - (padding_x * 2)
+
+        # Determine font file path
+        font_path = FONT_FILES.get(font_name)
+        if not font_path or not os.path.exists(font_path):
+            # Fallback to system font
+            font_path = None
+            font_name = "Arial"
+
+        # Auto-scale font size to fit width
+        fitted_font_size = calculate_fit_font_size(
+            title_text, font_name, font_size, max_text_width, min_size=28
+        )
+
+        print(f"[add_title_overlay] Title: '{title_text}', font_size: {font_size} -> fitted: {fitted_font_size}")
+
+        # Escape special characters for FFmpeg drawtext
+        # FFmpeg drawtext requires escaping: \ : '
+        escaped_text = title_text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "'\\''")
+
+        # Build FFmpeg filter
+        # 1. Draw a semi-transparent black gradient at the top
+        # 2. Draw the title text on top
+
+        # The gradient: starts at alpha=0.9 at top, fades to alpha=0 at title_bar_height
+        # Using drawbox with fade effect via overlay
+
+        # Simpler approach: solid dark box with slight transparency
+        # Then drawtext on top
+
+        if font_path:
+            # Use custom font file
+            filter_complex = (
+                # Solid black box at top
+                f"drawbox=x=0:y=0:w={video_width}:h={title_bar_height}:color=black:t=fill,"
+                # Draw the title text
+                f"drawtext=fontfile='{font_path}':"
+                f"text='{escaped_text}':"
+                f"fontsize={fitted_font_size}:"
+                f"fontcolor=white:"
+                f"x=(w-text_w)/2:"
+                f"y={padding_y}"
+            )
+        else:
+            # Use system font
+            filter_complex = (
+                f"drawbox=x=0:y=0:w={video_width}:h={title_bar_height}:color=black:t=fill,"
+                f"drawtext=font='Arial':"
+                f"text='{escaped_text}':"
+                f"fontsize={fitted_font_size}:"
+                f"fontcolor=white:"
+                f"x=(w-text_w)/2:"
+                f"y={padding_y}"
+            )
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', input_path,
+            '-vf', filter_complex,
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'copy',  # Copy audio without re-encoding
+            '-movflags', '+faststart',
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        # Clean up input file
+        os.unlink(input_path)
+
+        if result.returncode != 0:
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+            return {"error": f"FFmpeg title overlay failed: {result.stderr}"}
+
+        # Read output and convert to base64
+        with open(output_path, 'rb') as f:
+            output_data = f.read()
+
+        output_base64 = base64.b64encode(output_data).decode('utf-8')
+        file_size = len(output_data)
+
+        os.unlink(output_path)
+
+        return {
+            "success": True,
+            "video_data": output_base64,
+            "file_size": file_size
+        }
+
+    except Exception as e:
+        # Clean up any temp files
+        if 'input_path' in dir() and os.path.exists(input_path):
+            os.unlink(input_path)
+        if 'output_path' in dir() and os.path.exists(output_path):
+            os.unlink(output_path)
+        return {"error": f"Error adding title overlay: {str(e)}"}

@@ -283,6 +283,21 @@ export default function RegionSelectorPage() {
   // Silence removal options state - will be loaded from localStorage
   const [silenceRemoval, setSilenceRemoval] = useState(DEFAULT_SILENCE_REMOVAL);
 
+  // Per-clip title text - each clip can have a different title
+  const [allClipTitles, setAllClipTitles] = useState<string[]>([]);
+
+  // Current clip's title (derived from allClipTitles)
+  const currentTitle = allClipTitles[currentClipIndex] || "";
+
+  // Update title for the current clip
+  const setCurrentTitle = (newTitle: string) => {
+    setAllClipTitles(prev => {
+      const updated = [...prev];
+      updated[currentClipIndex] = newTitle;
+      return updated;
+    });
+  };
+
   // Track if settings have been loaded from localStorage
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
@@ -331,6 +346,7 @@ export default function RegionSelectorPage() {
       if (savedPipSettings) {
         setPipSettings({ ...DEFAULT_PIP_SETTINGS, ...JSON.parse(savedPipSettings) });
       }
+
     } catch (e) {
       console.warn("Failed to load settings from localStorage:", e);
     }
@@ -413,6 +429,8 @@ export default function RegionSelectorPage() {
       setClips(pendingClips);
       // Initialize per-clip regions with defaults for each clip
       setAllClipRegions(pendingClips.map(() => getDefaultRegions()));
+      // Initialize per-clip titles with empty strings
+      setAllClipTitles(pendingClips.map(() => ""));
       // Create preview URL for first clip
       if (pendingClips[0].clip_result?.video_data) {
         const blob = base64ToBlob(pendingClips[0].clip_result.video_data, "video/mp4");
@@ -678,6 +696,7 @@ export default function RegionSelectorPage() {
             pip_settings: layoutMode === "pip" ? pipSettings : undefined,
             caption_options: captionOptions,
             silence_removal: silenceRemoval,
+            all_clip_titles: allClipTitles,
           }),
         }
       );
@@ -1497,6 +1516,44 @@ export default function RegionSelectorPage() {
               {!captionOptions.enabled && (
                 <p className="text-xs text-zinc-500">Enable to add animated captions.</p>
               )}
+            </div>
+
+            {/* Top Title (per-clip) */}
+            <div className="p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-white">Top Title</h3>
+                {currentTitle && (
+                  <button
+                    onClick={() => setCurrentTitle("")}
+                    className="text-xs text-zinc-400 hover:text-white"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p className="text-[10px] text-zinc-500 mb-2">
+                Clip {currentClipIndex + 1} of {clips.length}
+              </p>
+              <input
+                type="text"
+                value={currentTitle}
+                onChange={(e) => setCurrentTitle(e.target.value)}
+                placeholder="Optional title for this clip..."
+                className="w-full px-3 py-2 bg-zinc-700 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-purple-500 placeholder:text-zinc-500"
+              />
+              {currentTitle && (
+                <div className="mt-2 p-2 bg-zinc-900 rounded">
+                  <p className="text-[10px] text-zinc-500 mb-1">Preview:</p>
+                  <div className="bg-black/80 px-2 py-1 rounded">
+                    <p className="text-white text-xs font-bold" style={{ fontFamily: "var(--font-montserrat), Montserrat, sans-serif" }}>
+                      {currentTitle}
+                    </p>
+                  </div>
+                </div>
+              )}
+              <p className="text-[10px] text-zinc-500 mt-2">
+                Each clip can have its own title. Navigate clips above to set titles.
+              </p>
             </div>
 
             {/* Silence Removal / Jump Cuts */}

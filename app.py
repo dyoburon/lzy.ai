@@ -44,6 +44,7 @@ from services.bestof import (
     create_bestof_compilation,
     process_video_for_bestof
 )
+from services.concat import concatenate_videos
 
 # Environment variable definitions for the config endpoint
 ENV_VAR_CONFIG = {
@@ -640,7 +641,8 @@ def process_vertical_shorts():
             "enabled": false,
             "min_gap_duration": 0.4,
             "padding": 0.05
-        }
+        },
+        "all_clip_titles": ["Title for clip 1", "Title for clip 2", ...]  # Optional per-clip titles
     }
 
     Returns processed vertical shorts as base64 video data.
@@ -656,6 +658,7 @@ def process_vertical_shorts():
     pip_settings = data.get('pip_settings')
     caption_options = data.get('caption_options')
     silence_removal = data.get('silence_removal')
+    all_clip_titles = data.get('all_clip_titles', [])  # Per-clip titles array
 
     # Debug logging
     print(f"[process-vertical] layout_mode: {layout_mode}")
@@ -667,6 +670,8 @@ def process_vertical_shorts():
         print(f"[process-vertical] caption_options: {caption_options}")
     if silence_removal:
         print(f"[process-vertical] silence_removal options: {silence_removal}")
+    if all_clip_titles and any(all_clip_titles):
+        print(f"[process-vertical] all_clip_titles: {all_clip_titles}")
 
     if not clips:
         return jsonify({"error": "No clips provided"}), 400
@@ -708,15 +713,15 @@ def process_vertical_shorts():
         # Import PiP processing function
         from services.shorts import process_clips_to_pip, process_clips_to_pip_with_captions
         if caption_options and caption_options.get('enabled', False):
-            result = process_clips_to_pip_with_captions(clips, None, pip_settings, caption_options, all_clip_regions=all_clip_regions)
+            result = process_clips_to_pip_with_captions(clips, None, pip_settings, caption_options, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
         else:
-            result = process_clips_to_pip(clips, None, pip_settings, all_clip_regions=all_clip_regions)
+            result = process_clips_to_pip(clips, None, pip_settings, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
     else:
         # Stack mode (default)
         if caption_options and caption_options.get('enabled', False):
-            result = process_clips_to_vertical_with_captions(clips, None, layout, caption_options, all_clip_regions=all_clip_regions)
+            result = process_clips_to_vertical_with_captions(clips, None, layout, caption_options, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
         else:
-            result = process_clips_to_vertical(clips, None, layout, all_clip_regions=all_clip_regions)
+            result = process_clips_to_vertical(clips, None, layout, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
 
     # Apply silence removal if requested (after vertical processing)
     if silence_removal and silence_removal.get('enabled', False):
@@ -1444,6 +1449,82 @@ def add_captions_to_video():
         "captions_applied": True,
         "num_caption_groups": len(captions)
     })
+
+
+# --- Clip Joiner Routes ---
+@app.route('/api/join/upload', methods=['POST'])
+def join_upload_video():
+    """
+    Upload a video file for joining.
+    Returns the server path to use for concatenation.
+    """
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+
+    file = request.files['video']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    filename = secure_filename(file.filename)
+    unique_id = str(uuid.uuid4())[:8]
+    name, ext = os.path.splitext(filename)
+    unique_filename = f"{name}_{unique_id}{ext}"
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+    file.save(filepath)
+
+    return jsonify({
+        "success": True,
+        "video_path": filepath,
+        "filename": unique_filename
+    })
+
+
+@app.route('/api/join/concatenate', methods=['POST'])
+def join_concatenate():
+    """
+    Concatenate two videos together.
+
+    Request body:
+    {
+        "video_path_1": "/path/to/first/video.mp4",
+        "video_path_2": "/path/to/second/video.mp4"
+    }
+
+    Returns the joined video as base64.
+    """
+    data = request.json
+    video_path_1 = data.get('video_path_1')
+    video_path_2 = data.get('video_path_2')
+
+    if not video_path_1 or not video_path_2:
+        return jsonify({"error": "Both video_path_1 and video_path_2 are required"}), 400
+
+    if not os.path.exists(video_path_1):
+        return jsonify({"error": f"First video not found: {video_path_1}"}), 400
+
+    if not os.path.exists(video_path_2):
+        return jsonify({"error": f"Second video not found: {video_path_2}"}), 400
+
+    try:
+        result = concatenate_videos(video_path_1, video_path_2)
+
+        if "error" in result:
+            return jsonify(result), 400
+
+        return jsonify({
+            "success": True,
+            "video_data": result['video_data'],
+            "format": result['format']
+        })
+    finally:
+        # Clean up uploaded files
+        for path in [video_path_1, video_path_2]:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception as e:
+                print(f"Warning: Failed to clean up {path}: {e}")
 
 
 if __name__ == '__main__':
