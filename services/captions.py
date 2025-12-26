@@ -756,9 +756,10 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
     Add a title overlay at the top of a video with a dark background.
 
     Creates a professional-looking title bar similar to viral shorts, with:
-    - Solid black bar at the top (~200px)
+    - Solid black bar at the top (~260px for more height)
     - Bold white text centered in Montserrat Black font
     - Support for highlighted text using {curly braces} syntax
+    - Full emoji support via PIL + pilmoji rendering
     - Auto-scaling font to fit width
 
     Args:
@@ -772,6 +773,8 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
         Dict with success status and processed video as base64
     """
     import re
+    from PIL import Image, ImageDraw
+    from pilmoji import Pilmoji
 
     if not title_text or not title_text.strip():
         return {"error": "No title text provided"}
@@ -793,10 +796,9 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
         video_width = 1080
         video_height = 1920
 
-        # Title bar dimensions
-        title_bar_height = 200  # Height of the dark area
+        # Title bar dimensions - increased height for more text space
+        title_bar_height = 260
         padding_x = 40  # Horizontal padding
-        padding_y = 40  # Vertical padding from top
 
         # Calculate available width for text
         max_text_width = video_width - (padding_x * 2)
@@ -805,7 +807,6 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
         font_path = FONT_FILES.get(font_name)
         if not font_path or not os.path.exists(font_path):
             font_path = None
-            font_name = "Arial"
 
         # Parse text to find highlighted segments: {text} becomes highlighted
         # Split into segments: [("normal text", False), ("highlighted", True), ...]
@@ -828,76 +829,78 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
 
         # Auto-scale font size to fit width
         fitted_font_size = calculate_fit_font_size(
-            plain_text, font_name, font_size, max_text_width, min_size=28
+            plain_text, font_name if font_path else "Arial", font_size, max_text_width, min_size=28
         )
 
         print(f"[add_title_overlay] Title: '{title_text}', font_size: {font_size} -> fitted: {fitted_font_size}")
         print(f"[add_title_overlay] Segments: {segments}")
 
-        # Convert highlight color from hex to FFmpeg format (remove # if present)
-        ffmpeg_highlight_color = highlight_color.lstrip('#')
+        # Convert highlight color from hex to RGB tuple
+        hl_hex = highlight_color.lstrip('#')
+        highlight_rgb = tuple(int(hl_hex[i:i+2], 16) for i in (0, 2, 4))
+        white_rgb = (255, 255, 255)
 
-        # Build filter: draw box first, then text segments
-        filters = [f"drawbox=x=0:y=0:w={video_width}:h={title_bar_height}:color=black:t=fill"]
+        # Create title bar image with PIL
+        title_image = Image.new('RGBA', (video_width, title_bar_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(title_image)
 
-        # Calculate total width and starting x position for centering
-        # We need to measure each segment's width
+        # Load font
         try:
-            pil_font = ImageFont.truetype(font_path, fitted_font_size) if font_path else ImageFont.load_default()
-        except:
-            pil_font = ImageFont.load_default()
+            if font_path:
+                main_font = ImageFont.truetype(font_path, fitted_font_size)
+            else:
+                main_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", fitted_font_size)
+        except Exception as e:
+            print(f"[add_title_overlay] Font load error: {e}, using default")
+            main_font = ImageFont.load_default()
 
-        # Calculate total width
-        total_width = 0
+        # Calculate segment widths for centering
         segment_widths = []
+        total_width = 0
         for text, _ in segments:
-            width = measure_text_width(text, font_name, fitted_font_size)
+            try:
+                bbox = main_font.getbbox(text)
+                width = bbox[2] - bbox[0]
+            except:
+                width = len(text) * fitted_font_size * 0.6
             segment_widths.append(width)
             total_width += width
 
-        # Starting x position for centering
+        # Calculate starting x for centering
         start_x = (video_width - total_width) // 2
 
-        # Build drawtext filters for each segment
+        # Calculate y position to center vertically
+        try:
+            bbox = main_font.getbbox(plain_text)
+            text_height = bbox[3] - bbox[1]
+        except:
+            text_height = fitted_font_size
+        text_y = (title_bar_height - text_height) // 2
+
+        # Draw text using pilmoji for emoji support
         current_x = start_x
-        for i, (text, is_highlighted) in enumerate(segments):
-            if not text:
-                continue
+        with Pilmoji(title_image) as pilmoji_draw:
+            for i, (text, is_highlighted) in enumerate(segments):
+                if not text:
+                    continue
+                color = highlight_rgb if is_highlighted else white_rgb
+                pilmoji_draw.text((current_x, text_y), text, font=main_font, fill=color)
+                current_x += segment_widths[i]
 
-            # Escape text for FFmpeg
-            escaped_text = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "'\\''")
+        # Save title image to temp file
+        title_img_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+        title_image.save(title_img_file.name, 'PNG')
+        title_img_file.close()
+        title_img_path = title_img_file.name
 
-            # Determine color
-            color = ffmpeg_highlight_color if is_highlighted else "white"
+        print(f"[add_title_overlay] Title image saved to: {title_img_path}")
 
-            if font_path:
-                filter_part = (
-                    f"drawtext=fontfile='{font_path}':"
-                    f"text='{escaped_text}':"
-                    f"fontsize={fitted_font_size}:"
-                    f"fontcolor={color}:"
-                    f"x={current_x}:"
-                    f"y={padding_y}"
-                )
-            else:
-                filter_part = (
-                    f"drawtext=font='Arial':"
-                    f"text='{escaped_text}':"
-                    f"fontsize={fitted_font_size}:"
-                    f"fontcolor={color}:"
-                    f"x={current_x}:"
-                    f"y={padding_y}"
-                )
-
-            filters.append(filter_part)
-            current_x += segment_widths[i]
-
-        filter_complex = ",".join(filters)
-
+        # Overlay title image on video using FFmpeg
         cmd = [
             'ffmpeg', '-y',
             '-i', input_path,
-            '-vf', filter_complex,
+            '-i', title_img_path,
+            '-filter_complex', '[0:v][1:v]overlay=0:0:format=auto',
             '-c:v', 'libx264',
             '-preset', 'fast',
             '-crf', '23',
@@ -908,8 +911,9 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
 
         result = subprocess.run(cmd, capture_output=True, text=True)
 
-        # Clean up input file
+        # Clean up temp files
         os.unlink(input_path)
+        os.unlink(title_img_path)
 
         if result.returncode != 0:
             if os.path.exists(output_path):
@@ -933,8 +937,11 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
 
     except Exception as e:
         # Clean up any temp files
-        if 'input_path' in dir() and os.path.exists(input_path):
-            os.unlink(input_path)
-        if 'output_path' in dir() and os.path.exists(output_path):
-            os.unlink(output_path)
+        for var_name in ['input_path', 'output_path', 'title_img_path']:
+            try:
+                path = locals().get(var_name)
+                if path and os.path.exists(path):
+                    os.unlink(path)
+            except:
+                pass
         return {"error": f"Error adding title overlay: {str(e)}"}
