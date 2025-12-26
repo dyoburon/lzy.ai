@@ -286,6 +286,12 @@ export default function RegionSelectorPage() {
   // Per-clip title text - each clip can have a different title
   const [allClipTitles, setAllClipTitles] = useState<string[]>([]);
 
+  // Title font size (shared across all clips)
+  const [titleFontSize, setTitleFontSize] = useState(48);
+
+  // Title highlight color (for words wrapped in {curly braces})
+  const [titleHighlightColor, setTitleHighlightColor] = useState("#FBBF24"); // Yellow/gold
+
   // Current clip's title (derived from allClipTitles)
   const currentTitle = allClipTitles[currentClipIndex] || "";
 
@@ -697,6 +703,8 @@ export default function RegionSelectorPage() {
             caption_options: captionOptions,
             silence_removal: silenceRemoval,
             all_clip_titles: allClipTitles,
+            title_font_size: titleFontSize,
+            title_highlight_color: titleHighlightColor,
           }),
         }
       );
@@ -1538,18 +1546,83 @@ export default function RegionSelectorPage() {
                 type="text"
                 value={currentTitle}
                 onChange={(e) => setCurrentTitle(e.target.value)}
-                placeholder="Optional title for this clip..."
+                placeholder="Use {curly braces} to highlight words..."
                 className="w-full px-3 py-2 bg-zinc-700 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-purple-500 placeholder:text-zinc-500"
               />
               {currentTitle && (
-                <div className="mt-2 p-2 bg-zinc-900 rounded">
-                  <p className="text-[10px] text-zinc-500 mb-1">Preview:</p>
-                  <div className="bg-black/80 px-2 py-1 rounded">
-                    <p className="text-white text-xs font-bold" style={{ fontFamily: "var(--font-montserrat), Montserrat, sans-serif" }}>
-                      {currentTitle}
-                    </p>
+                <>
+                  {/* Font Size Slider */}
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-zinc-500">Font Size</label>
+                      <span className="text-[10px] text-zinc-400 font-mono">{titleFontSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="32"
+                      max="72"
+                      value={titleFontSize}
+                      onChange={(e) => setTitleFontSize(parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                    <div className="flex justify-between text-[9px] text-zinc-600 mt-0.5">
+                      <span>Small</span>
+                      <span>Large</span>
+                    </div>
                   </div>
-                </div>
+                  {/* Highlight Color */}
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] text-zinc-500">Highlight Color</label>
+                      <span className="text-[10px] text-zinc-400 font-mono">{titleHighlightColor}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={titleHighlightColor}
+                        onChange={(e) => setTitleHighlightColor(e.target.value)}
+                        className="w-8 h-8 rounded cursor-pointer border border-zinc-600"
+                      />
+                      <div className="flex gap-1">
+                        {["#FBBF24", "#22C55E", "#3B82F6", "#EF4444", "#A855F7"].map((color) => (
+                          <button
+                            key={color}
+                            onClick={() => setTitleHighlightColor(color)}
+                            className={`w-6 h-6 rounded border-2 ${titleHighlightColor === color ? 'border-white' : 'border-transparent'}`}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Preview */}
+                  <div className="mt-3 p-2 bg-zinc-900 rounded">
+                    <p className="text-[10px] text-zinc-500 mb-1">Preview:</p>
+                    <div className="bg-black px-3 py-2 rounded">
+                      <p
+                        className="text-white font-bold text-center"
+                        style={{
+                          fontFamily: "var(--font-montserrat), Montserrat, sans-serif",
+                          fontSize: `${Math.max(10, titleFontSize / 4)}px`
+                        }}
+                      >
+                        {currentTitle.split(/(\{[^}]+\})/).map((part, i) => {
+                          if (part.startsWith('{') && part.endsWith('}')) {
+                            return (
+                              <span key={i} style={{ color: titleHighlightColor }}>
+                                {part.slice(1, -1)}
+                              </span>
+                            );
+                          }
+                          return <span key={i}>{part}</span>;
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-zinc-500 mt-2">
+                    Wrap words in {"{curly braces}"} to highlight them.
+                  </p>
+                </>
               )}
               <p className="text-[10px] text-zinc-500 mt-2">
                 Each clip can have its own title. Navigate clips above to set titles.

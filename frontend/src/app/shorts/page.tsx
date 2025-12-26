@@ -430,7 +430,16 @@ export default function ShortsPage() {
       const clipData = await clipResponse.json();
 
       if (clipData.error) {
-        setError(clipData.error);
+        // Check if error is about missing video file - prompt re-upload
+        if (clipData.error.toLowerCase().includes('not found') ||
+            clipData.error.toLowerCase().includes('no such file') ||
+            clipData.error.toLowerCase().includes('does not exist')) {
+          setUploadedVideoPath("");
+          setVideoFile(null);
+          setError("Video file no longer exists. Please re-upload the video.");
+        } else {
+          setError(clipData.error);
+        }
       } else {
         setClipResult(clipData);
 
@@ -477,7 +486,16 @@ export default function ShortsPage() {
       const clipData = await clipResponse.json();
 
       if (clipData.error) {
-        setError(clipData.error);
+        // Check if error is about missing video file - prompt re-upload
+        if (clipData.error.toLowerCase().includes('not found') ||
+            clipData.error.toLowerCase().includes('no such file') ||
+            clipData.error.toLowerCase().includes('does not exist')) {
+          setUploadedVideoPath("");
+          setVideoFile(null);
+          setError("Video file no longer exists. Please re-upload the video.");
+        } else {
+          setError(clipData.error);
+        }
       } else {
         setClipResult(clipData);
 

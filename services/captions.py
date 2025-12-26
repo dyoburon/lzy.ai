@@ -751,24 +751,28 @@ def create_caption_overlay_video(video_data_base64, captions, caption_options=No
         return {"error": f"Error adding captions: {str(e)}"}
 
 
-def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black", font_size=48):
+def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black", font_size=48, highlight_color="#FBBF24"):
     """
-    Add a title overlay at the top of a video with a dark gradient background.
+    Add a title overlay at the top of a video with a dark background.
 
     Creates a professional-looking title bar similar to viral shorts, with:
-    - Semi-transparent dark gradient at the top (~200px)
+    - Solid black bar at the top (~200px)
     - Bold white text centered in Montserrat Black font
-    - Auto-wrapping for longer titles
+    - Support for highlighted text using {curly braces} syntax
+    - Auto-scaling font to fit width
 
     Args:
         video_data_base64: Base64 encoded video data
-        title_text: The title text to display
+        title_text: The title text to display (use {text} for highlighted portions)
         font_name: Font to use (default "Montserrat Black")
         font_size: Base font size (default 48)
+        highlight_color: Color for text in {curly braces} (default "#FBBF24" yellow)
 
     Returns:
         Dict with success status and processed video as base64
     """
+    import re
+
     if not title_text or not title_text.strip():
         return {"error": "No title text provided"}
 
@@ -790,7 +794,7 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
         video_height = 1920
 
         # Title bar dimensions
-        title_bar_height = 200  # Height of the dark gradient area
+        title_bar_height = 200  # Height of the dark area
         padding_x = 40  # Horizontal padding
         padding_y = 40  # Vertical padding from top
 
@@ -800,55 +804,95 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
         # Determine font file path
         font_path = FONT_FILES.get(font_name)
         if not font_path or not os.path.exists(font_path):
-            # Fallback to system font
             font_path = None
             font_name = "Arial"
 
+        # Parse text to find highlighted segments: {text} becomes highlighted
+        # Split into segments: [("normal text", False), ("highlighted", True), ...]
+        segments = []
+        pattern = r'\{([^}]+)\}'
+        last_end = 0
+        for match in re.finditer(pattern, title_text):
+            # Add text before the match (normal)
+            if match.start() > last_end:
+                segments.append((title_text[last_end:match.start()], False))
+            # Add the matched text (highlighted, without braces)
+            segments.append((match.group(1), True))
+            last_end = match.end()
+        # Add remaining text after last match
+        if last_end < len(title_text):
+            segments.append((title_text[last_end:], False))
+
+        # Get plain text (without braces) for font size calculation
+        plain_text = re.sub(pattern, r'\1', title_text)
+
         # Auto-scale font size to fit width
         fitted_font_size = calculate_fit_font_size(
-            title_text, font_name, font_size, max_text_width, min_size=28
+            plain_text, font_name, font_size, max_text_width, min_size=28
         )
 
         print(f"[add_title_overlay] Title: '{title_text}', font_size: {font_size} -> fitted: {fitted_font_size}")
+        print(f"[add_title_overlay] Segments: {segments}")
 
-        # Escape special characters for FFmpeg drawtext
-        # FFmpeg drawtext requires escaping: \ : '
-        escaped_text = title_text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "'\\''")
+        # Convert highlight color from hex to FFmpeg format (remove # if present)
+        ffmpeg_highlight_color = highlight_color.lstrip('#')
 
-        # Build FFmpeg filter
-        # 1. Draw a semi-transparent black gradient at the top
-        # 2. Draw the title text on top
+        # Build filter: draw box first, then text segments
+        filters = [f"drawbox=x=0:y=0:w={video_width}:h={title_bar_height}:color=black:t=fill"]
 
-        # The gradient: starts at alpha=0.9 at top, fades to alpha=0 at title_bar_height
-        # Using drawbox with fade effect via overlay
+        # Calculate total width and starting x position for centering
+        # We need to measure each segment's width
+        try:
+            pil_font = ImageFont.truetype(font_path, fitted_font_size) if font_path else ImageFont.load_default()
+        except:
+            pil_font = ImageFont.load_default()
 
-        # Simpler approach: solid dark box with slight transparency
-        # Then drawtext on top
+        # Calculate total width
+        total_width = 0
+        segment_widths = []
+        for text, _ in segments:
+            width = measure_text_width(text, font_name, fitted_font_size)
+            segment_widths.append(width)
+            total_width += width
 
-        if font_path:
-            # Use custom font file
-            filter_complex = (
-                # Solid black box at top
-                f"drawbox=x=0:y=0:w={video_width}:h={title_bar_height}:color=black:t=fill,"
-                # Draw the title text
-                f"drawtext=fontfile='{font_path}':"
-                f"text='{escaped_text}':"
-                f"fontsize={fitted_font_size}:"
-                f"fontcolor=white:"
-                f"x=(w-text_w)/2:"
-                f"y={padding_y}"
-            )
-        else:
-            # Use system font
-            filter_complex = (
-                f"drawbox=x=0:y=0:w={video_width}:h={title_bar_height}:color=black:t=fill,"
-                f"drawtext=font='Arial':"
-                f"text='{escaped_text}':"
-                f"fontsize={fitted_font_size}:"
-                f"fontcolor=white:"
-                f"x=(w-text_w)/2:"
-                f"y={padding_y}"
-            )
+        # Starting x position for centering
+        start_x = (video_width - total_width) // 2
+
+        # Build drawtext filters for each segment
+        current_x = start_x
+        for i, (text, is_highlighted) in enumerate(segments):
+            if not text:
+                continue
+
+            # Escape text for FFmpeg
+            escaped_text = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "'\\''")
+
+            # Determine color
+            color = ffmpeg_highlight_color if is_highlighted else "white"
+
+            if font_path:
+                filter_part = (
+                    f"drawtext=fontfile='{font_path}':"
+                    f"text='{escaped_text}':"
+                    f"fontsize={fitted_font_size}:"
+                    f"fontcolor={color}:"
+                    f"x={current_x}:"
+                    f"y={padding_y}"
+                )
+            else:
+                filter_part = (
+                    f"drawtext=font='Arial':"
+                    f"text='{escaped_text}':"
+                    f"fontsize={fitted_font_size}:"
+                    f"fontcolor={color}:"
+                    f"x={current_x}:"
+                    f"y={padding_y}"
+                )
+
+            filters.append(filter_part)
+            current_x += segment_widths[i]
+
+        filter_complex = ",".join(filters)
 
         cmd = [
             'ffmpeg', '-y',
@@ -857,7 +901,7 @@ def add_title_overlay(video_data_base64, title_text, font_name="Montserrat Black
             '-c:v', 'libx264',
             '-preset', 'fast',
             '-crf', '23',
-            '-c:a', 'copy',  # Copy audio without re-encoding
+            '-c:a', 'copy',
             '-movflags', '+faststart',
             output_path
         ]

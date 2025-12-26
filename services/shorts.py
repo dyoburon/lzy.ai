@@ -542,7 +542,9 @@ def process_clip_to_vertical(video_data_base64, regions, layout_config, title_op
         # Apply title overlay if requested
         if title_options and title_options.get('text'):
             from services.captions import add_title_overlay
-            title_result = add_title_overlay(result['video_data'], title_options['text'])
+            font_size = title_options.get('font_size', 48)
+            highlight_color = title_options.get('highlight_color', '#FBBF24')
+            title_result = add_title_overlay(result['video_data'], title_options['text'], font_size=font_size, highlight_color=highlight_color)
             if title_result.get('success'):
                 result['video_data'] = title_result['video_data']
                 result['file_size'] = title_result['file_size']
@@ -563,7 +565,7 @@ def process_clip_to_vertical(video_data_base64, regions, layout_config, title_op
         return {"error": f"Error processing video: {str(e)}"}
 
 
-def process_clips_to_vertical(clips, regions, layout_config, all_clip_regions=None, all_clip_titles=None):
+def process_clips_to_vertical(clips, regions, layout_config, all_clip_regions=None, all_clip_titles=None, title_font_size=48, title_highlight_color="#FBBF24"):
     """
     Process multiple clips into vertical shorts.
 
@@ -573,6 +575,8 @@ def process_clips_to_vertical(clips, regions, layout_config, all_clip_regions=No
         layout_config: Layout configuration
         all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
         all_clip_titles: Optional list of title strings, one per clip
+        title_font_size: Font size for title overlay
+        title_highlight_color: Color for highlighted text in {curly braces}
 
     Returns:
         List of processed results
@@ -592,7 +596,7 @@ def process_clips_to_vertical(clips, regions, layout_config, all_clip_regions=No
 
         # Get per-clip title if available
         clip_title = all_clip_titles[i] if all_clip_titles and i < len(all_clip_titles) else None
-        title_options = {"text": clip_title} if clip_title else None
+        title_options = {"text": clip_title, "font_size": title_font_size, "highlight_color": title_highlight_color} if clip_title else None
 
         processed = process_clip_to_vertical(
             clip_result['video_data'],
@@ -802,7 +806,8 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
     # Apply title overlay if requested (after captions)
     if title_options and title_options.get('text'):
         from services.captions import add_title_overlay
-        title_result = add_title_overlay(result['video_data'], title_options['text'])
+        font_size = title_options.get('font_size', 48)
+        title_result = add_title_overlay(result['video_data'], title_options['text'], font_size=font_size)
         if title_result.get('success'):
             result['video_data'] = title_result['video_data']
             result['file_size'] = title_result['file_size']
@@ -813,7 +818,7 @@ def process_clip_to_vertical_with_captions(video_data_base64, regions, layout_co
     return result
 
 
-def process_clips_to_vertical_with_captions(clips, regions, layout_config, caption_options=None, all_clip_regions=None, all_clip_titles=None):
+def process_clips_to_vertical_with_captions(clips, regions, layout_config, caption_options=None, all_clip_regions=None, all_clip_titles=None, title_font_size=48, title_highlight_color="#FBBF24"):
     """
     Process multiple clips into vertical shorts with animated captions.
 
@@ -824,6 +829,8 @@ def process_clips_to_vertical_with_captions(clips, regions, layout_config, capti
         caption_options: Caption styling options
         all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
         all_clip_titles: Optional list of title strings, one per clip
+        title_font_size: Font size for title overlay
+        title_highlight_color: Color for highlighted text in {curly braces}
 
     Returns:
         List of processed results
@@ -843,7 +850,7 @@ def process_clips_to_vertical_with_captions(clips, regions, layout_config, capti
 
         # Get per-clip title if available
         clip_title = all_clip_titles[i] if all_clip_titles and i < len(all_clip_titles) else None
-        title_options = {"text": clip_title} if clip_title else None
+        title_options = {"text": clip_title, "font_size": title_font_size, "highlight_color": title_highlight_color} if clip_title else None
 
         processed = process_clip_to_vertical_with_captions(
             clip_result['video_data'],
@@ -1053,7 +1060,8 @@ def process_clip_to_pip(video_data_base64, regions, pip_settings, title_options=
         # Apply title overlay if requested
         if title_options and title_options.get('text'):
             from services.captions import add_title_overlay
-            title_result = add_title_overlay(result['video_data'], title_options['text'])
+            font_size = title_options.get('font_size', 48)
+            title_result = add_title_overlay(result['video_data'], title_options['text'], font_size=font_size)
             if title_result.get('success'):
                 result['video_data'] = title_result['video_data']
                 result['file_size'] = title_result['file_size']
@@ -1067,7 +1075,7 @@ def process_clip_to_pip(video_data_base64, regions, pip_settings, title_options=
         return {"error": f"Error processing PiP video: {str(e)}"}
 
 
-def process_clips_to_pip(clips, regions, pip_settings, all_clip_regions=None, all_clip_titles=None):
+def process_clips_to_pip(clips, regions, pip_settings, all_clip_regions=None, all_clip_titles=None, title_font_size=48, title_highlight_color="#FBBF24"):
     """
     Process multiple clips into vertical shorts with PiP layout.
 
@@ -1077,6 +1085,8 @@ def process_clips_to_pip(clips, regions, pip_settings, all_clip_regions=None, al
         pip_settings: PiP configuration
         all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
         all_clip_titles: Optional list of title strings, one per clip
+        title_font_size: Font size for title overlay
+        title_highlight_color: Color for highlighted text in {curly braces}
 
     Returns:
         List of processed results
@@ -1096,7 +1106,7 @@ def process_clips_to_pip(clips, regions, pip_settings, all_clip_regions=None, al
 
         # Get per-clip title if available
         clip_title = all_clip_titles[i] if all_clip_titles and i < len(all_clip_titles) else None
-        title_options = {"text": clip_title} if clip_title else None
+        title_options = {"text": clip_title, "font_size": title_font_size, "highlight_color": title_highlight_color} if clip_title else None
 
         processed = process_clip_to_pip(
             clip_result['video_data'],
@@ -1114,7 +1124,7 @@ def process_clips_to_pip(clips, regions, pip_settings, all_clip_regions=None, al
     return {"processed_clips": results}
 
 
-def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_options=None, all_clip_regions=None, all_clip_titles=None):
+def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_options=None, all_clip_regions=None, all_clip_titles=None, title_font_size=48, title_highlight_color="#FBBF24"):
     """
     Process multiple clips into vertical shorts with PiP layout and animated captions.
 
@@ -1125,6 +1135,8 @@ def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_opt
         caption_options: Caption styling options
         all_clip_regions: Optional list of region arrays, one per clip (for per-clip regions)
         all_clip_titles: Optional list of title strings, one per clip
+        title_font_size: Font size for title overlay
+        title_highlight_color: Color for highlighted text in {curly braces}
 
     Returns:
         List of processed results
@@ -1144,7 +1156,7 @@ def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_opt
 
         # Get per-clip title if available
         clip_title = all_clip_titles[i] if all_clip_titles and i < len(all_clip_titles) else None
-        title_options = {"text": clip_title} if clip_title else None
+        title_options = {"text": clip_title, "font_size": title_font_size, "highlight_color": title_highlight_color} if clip_title else None
 
         # First, process to PiP layout
         pip_result = process_clip_to_pip(
@@ -1222,7 +1234,8 @@ def process_clips_to_pip_with_captions(clips, regions, pip_settings, caption_opt
         # Apply title overlay if requested (after captions)
         if title_options and title_options.get('text'):
             from services.captions import add_title_overlay
-            title_result = add_title_overlay(processed_result['video_data'], title_options['text'])
+            font_size = title_options.get('font_size', 48)
+            title_result = add_title_overlay(processed_result['video_data'], title_options['text'], font_size=font_size)
             if title_result.get('success'):
                 processed_result['video_data'] = title_result['video_data']
                 processed_result['file_size'] = title_result['file_size']

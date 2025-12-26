@@ -659,6 +659,8 @@ def process_vertical_shorts():
     caption_options = data.get('caption_options')
     silence_removal = data.get('silence_removal')
     all_clip_titles = data.get('all_clip_titles', [])  # Per-clip titles array
+    title_font_size = data.get('title_font_size', 48)  # Font size for titles
+    title_highlight_color = data.get('title_highlight_color', '#FBBF24')  # Highlight color for {bracketed} text
 
     # Debug logging
     print(f"[process-vertical] layout_mode: {layout_mode}")
@@ -713,15 +715,15 @@ def process_vertical_shorts():
         # Import PiP processing function
         from services.shorts import process_clips_to_pip, process_clips_to_pip_with_captions
         if caption_options and caption_options.get('enabled', False):
-            result = process_clips_to_pip_with_captions(clips, None, pip_settings, caption_options, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
+            result = process_clips_to_pip_with_captions(clips, None, pip_settings, caption_options, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles, title_font_size=title_font_size, title_highlight_color=title_highlight_color)
         else:
-            result = process_clips_to_pip(clips, None, pip_settings, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
+            result = process_clips_to_pip(clips, None, pip_settings, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles, title_font_size=title_font_size, title_highlight_color=title_highlight_color)
     else:
         # Stack mode (default)
         if caption_options and caption_options.get('enabled', False):
-            result = process_clips_to_vertical_with_captions(clips, None, layout, caption_options, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
+            result = process_clips_to_vertical_with_captions(clips, None, layout, caption_options, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles, title_font_size=title_font_size, title_highlight_color=title_highlight_color)
         else:
-            result = process_clips_to_vertical(clips, None, layout, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles)
+            result = process_clips_to_vertical(clips, None, layout, all_clip_regions=all_clip_regions, all_clip_titles=all_clip_titles, title_font_size=title_font_size, title_highlight_color=title_highlight_color)
 
     # Apply silence removal if requested (after vertical processing)
     if silence_removal and silence_removal.get('enabled', False):
